@@ -226,6 +226,7 @@ var LibraryOpenAL = {
 
   alcCreateContext: function(device, attrList) {
     if (device != 1) {
+      AL.alcErr = 0xA001; /* ALC_INVALID_DEVICE */
       return 0;
     }
 
@@ -233,6 +234,7 @@ var LibraryOpenAL = {
 #if OPENAL_DEBUG
       console.log("The attrList argument of alcCreateContext is not supported yet");
 #endif
+      AL.alcErr = 0xA004; /* ALC_INVALID_VALUE */
       return 0;
     }
 
@@ -266,6 +268,7 @@ var LibraryOpenAL = {
       AL.contexts.push(context);
       return AL.contexts.length;
     } else {
+      AL.alcErr = 0xA001; /* ALC_INVALID_DEVICE */
       return 0;
     }
   },
@@ -633,6 +636,14 @@ var LibraryOpenAL = {
   alSource3i__deps: ['alSource3f'],
   alSource3i: function(source, param, v1, v2, v3) {
     _alSource3f(source, param, v1, v2, v3);
+  },
+
+  alSourceiv__deps: ['alSource3f'],
+  alSourceiv: function(source, param, value) {
+    _alSource3f(source, param,
+      {{{ makeGetValue('value', '0', 'i32') }}},
+      {{{ makeGetValue('value', '4', 'i32') }}},
+      {{{ makeGetValue('value', '8', 'i32') }}});
   },
 
   alSource3f: function(source, param, v1, v2, v3) {
@@ -1601,6 +1612,10 @@ var LibraryOpenAL = {
     if (name == "AL_FORMAT_STEREO_FLOAT32") return 0x10011;
 
     AL.currentContext.err = 0xA003 /* AL_INVALID_VALUE */;
+    return 0;
+  },
+
+  alcGetEnumValue: function(device, name) {
     return 0;
   },
 
