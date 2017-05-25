@@ -12,132 +12,180 @@ var LibraryOpenAL = {
 		alcStringCache: {},
 
 		QUEUE_INTERVAL: 25,
-		QUEUE_LOOKAHEAD: 100,
+		QUEUE_LOOKAHEAD: 100.0 / 1000.0,
 
 		updateSources: function updateSources(context) {
 			// If we are animating using the requestAnimationFrame method, then the main loop does not run when in the background.
 			// To give a perfect glitch-free audio stop when switching from foreground to background, we need to avoid updating
 			// audio altogether when in the background, so detect that case and kill audio buffer streaming if so.
-			if (Browser.mainLoop.timingMode == 1/*EM_TIMING_RAF*/ && document['visibilityState'] != 'visible') return;
+			if (Browser.mainLoop.timingMode == 1/*EM_TIMING_RAF*/ && document['visibilityState'] != 'visible') {
+				return;
+			}
 
-			for (var srcId in context.sources) {
-				AL.updateSource(context.sources[srcId]);
+			for (var i in context.sources) {
+				AL.updateSource(context.sources[i]);
 			}
 		},
 
 		updateSource: function updateSource(src) {
 			// See comment on updateSources above.
-			if (Browser.mainLoop.timingMode == 1/*EM_TIMING_RAF*/ && document['visibilityState'] != 'visible') return;
+			if (Browser.mainLoop.timingMode == 1/*EM_TIMING_RAF*/ && document['visibilityState'] != 'visible') {
+				return;
+			}
 
 			if (src.state !== 0x1012 /* AL_PLAYING */) {
 				return;
 			}
 
-			AL.shiftOutputQueue(src);
+			AL.shiftAudioQueue(src);
 
 			var currentTime = src.context.audioCtx.currentTime;
-			var startTime = src.bufPosition;
-			var startOffset = 0;
+			var lookaheadTime = currentTime + AL.QUEUE_LOOKAHEAD;
+			var startTime = src.startTime;
+			var startOffset = src.startOffset;
+			var bufCursor = src.bufsProcessed;
 
-			while (startOffset < (AL.QUEUE_LOOKAHEAD / 1000)) {
+			for (var i = 0; i < src.audioQueue.length; ++i) {
+				startTime += src.audioQueue[i]._duration;
+				startOffset = 0.0;
+				bufCursor += 1;
+				console.log("skip " + i);
 			}
 
-
-			while (startOffset
-			for (var i = src.bufsProcessed; i < src.bufQueue.length; i++) {
-			}
-
-			for (var bufSrc in src.outputQueue) {
-				var startOffset = (startTime - currentTime) / src.playbackRate;
-				var endTime = startTime + entry.bufSrc.duration; // n.b. entry.bufSrc.duration already factors in playbackRate, so no divide by src.playbackRate on it.
-
-				if (startOffset < (AL.QUEUE_LOOKAHEAD / 1000) && !bufSrc) {
-					// If the start offset is negative, we need to offset the actual buffer.
-					var offset = Math.abs(Math.min(startOffset, 0));
-
-					bufSrc = src.context.audioCtx.createBufferSource();
-					bufSrc.buffer = buffer;
-					bufSrc.connect(src.gain);
-					if (src.playbackRate != 1.0) bufSrc.playbackRate.value = src.playbackRate;
-					bufSrc.duration = buffer.duration / src.playbackRate;
-					if (typeof(bufSrc.start) !== 'undefined') {
-						bufSrc.start(startTime, offset);
-					} else if (typeof(bufSrc.noteOn) !== 'undefined') {
-						bufSrc.noteOn(startTime);
-#if OPENAL_DEBUG
-						if (offset > 0) {
-							Runtime.warnOnce('The current browser does not support AudioBufferSourceNode.start(when, offset); method, so cannot play back audio with an offset '+offset+' secs! Audio glitches will occur!');
-						}
-#endif
+			while (startTime < lookaheadTime) {
+				if (bufCursor >= src.bufQueue.length) {
+					if (src.loop) {
+						bufCursor %= src.bufQueue.length;
+					} else {
+						break;
 					}
-#if OPENAL_DEBUG
-					else {
-						Runtime.warnOnce('Unable to start AudioBufferSourceNode playback! Not supported by the browser?');
-					}
-
-					console.log('updateSource queuing buffer ' + i + ' for source ' + src.id + ' at ' + startTime + ' (offset by ' + offset + ')');
-#endif
 				}
 
-				startTime = endTime;
+				var buf = src.bufQueue[bufCursor % src.bufQueue.length];
+
+				var audioSrc = src.context.audioCtx.createBufferSource();
+				audioSrc.buffer = buf.audioBuf;
+				audioSrc.connect(src.gain);
+				if (src.playbackRate != 1.0) {
+					audioSrc.playbackRate.value = src.playbackRate;
+				}
+				audioSrc._duration = buf.audioBuf.duration / src.playbackRate;
+				src.audioQueue.push(audioSrc);
+				console.log(src.audioQueue);
+
+				if (typeof(audioSrc.start) !== 'undefined') {
+					audioSrc.start(startTime, startOffset);
+				} else if (typeof(audioSrc.noteOn) !== 'undefined') {
+					audioSrc.noteOn(startTime);
+#if OPENAL_DEBUG
+					if (offset > 0) {
+						Runtime.warnOnce('The current browser does not support AudioBufferSourceNode.start(when, offset); method, so cannot play back audio with an offset '+startOffset+' secs! Audio glitches will occur!');
+					}
+#endif
+				}
+#if OPENAL_DEBUG
+				else {
+					Runtime.warnOnce('Unable to start AudioBufferSourceNode playback! Not supported by the browser?');
+				}
+
+				console.log('updateSource queuing buffer ' + buf.id + ' for source ' + src.id + ' at ' + startTime + ' (offset by ' + startOffset + ')');
+#endif
+
+				startTime += audioSrc._duration;
+				bufCursor += 1;
+			}
+
+			if (!src.audioQueue.length) {
+				AL.setSourceState(src, 0x1014 /* AL_STOPPED */);
+			}
+		},
+
+		pollOffset: function pollOffset(src) {
+			if (src.state === 0x1012 /* AL_PLAYING */) {
+				var currentTime = src.context.audioCtx.currentTime;
+				var deltaTime = currentTime - src.startTime;
+				src.startTime = currentTime;
+				src.startOffset += deltaTime * src.playbackRate;
+
+				var audioSrc = src.audioQueue[0];
+				if (audioSrc) {
+					Math.max(audioSrc._duration -= deltaTime, 0.0);
+				}
 			}
 		},
 
 		// Clean up old sourceBuffers.
-		shiftOutputQueue: function shiftOutputQueue(src) {
+		shiftAudioQueue: function shiftAudioQueue(src) {
 			var currentTime = src.context.audioCtx.currentTime;
-			var startTime = src.bufPosition;
 
-			while (src.outputQueue.length) {
-				var bufSrc = src.outputQueue[0];
-				var endTime = startTime + bufSrc.duration; // n.b. bufSrc.duration already factors in playbackRate, so no divide by src.playbackRate on it.
+			while (src.audioQueue.length) {
+				var audioSrc = src.audioQueue[0];
+				var endTime = src.startTime + audioSrc._duration; // n.b. audioSrc._duration already factors in playbackRate, so no divide by src.playbackRate on it.
 
 				if (currentTime >= endTime) {
 					// Update our location in the queue.
-					src.bufPosition = endTime;
+					src.startTime = endTime;
+					src.startOffset = 0.0;
 					src.bufsProcessed++;
-					src.outputQueue.shift();
+					src.audioQueue.shift();
 				} else {
 					break;
+				}
+			}
+
+		},
+
+		cancelScheduledAudio: function cancelScheduledAudio(src) {
+			AL.shiftAudioQueue(src);
+
+			for (var i = 1; i < src.audioQueue.length; i++) {
+				var audioSrc = src.audioQueue[i];
+				audioSrc.stop();
+			}
+			src.audioQueue.length = 1;
+		},
+
+		stopAndClearAudioQueue: function stopAndClearAudioQueue(src) {
+			for (var i = 0; i < src.audioQueue.length; i++) {
+				var audioSrc = src.audioQueue[i];
+				if (audioSrc) {
+					audioSrc.stop(0);
+					audioSrc = null;
 				}
 			}
 		},
 
 		setSourceState: function setSourceState(src, state) {
 			if (state === 0x1012 /* AL_PLAYING */) {
-				if (src.state !== 0x1013 /* AL_PAUSED */) {
-					src.state = 0x1012 /* AL_PLAYING */;
-					// Reset our position.
-					src.bufPosition = AL.currentCtx.audioCtx.currentTime;
-					src.bufsProcessed = 0;
 #if OPENAL_DEBUG
-					console.log('setSourceState resetting and playing source ' + src.id);
-#endif
+				if (src.state === 0x1013 /* AL_PAUSED */) {
+					console.log('setSourceState resuming source ' + src.id + ' at ' + src.startOffset.toFixed(4));
 				} else {
-					src.state = 0x1012 /* AL_PLAYING */;
-					// Use the current offset from src.bufPosition to resume at the correct point.
-					src.bufPosition = AL.currentCtx.audioCtx.currentTime - src.bufPosition;
-#if OPENAL_DEBUG
-					console.log('setSourceState resuming source ' + src.id + ' at ' + src.bufPosition.toFixed(4));
-#endif
+					console.log('setSourceState resetting and playing source ' + src.id);
 				}
-				AL.stopOutputQueue(src);
+#endif
+
+				src.startTime = AL.currentCtx.audioCtx.currentTime;
+				src.state = 0x1012 /* AL_PLAYING */;
+
+				AL.stopAndClearAudioQueue(src);
 				AL.updateSource(src);
 			} else if (state === 0x1013 /* AL_PAUSED */) {
 				if (src.state === 0x1012 /* AL_PLAYING */) {
 					src.state = 0x1013 /* AL_PAUSED */;
 					// Store off the current offset to restore with on resume.
-					src.bufPosition = AL.currentCtx.audioCtx.currentTime - src.bufPosition;
-					AL.stopOutputQueue(src);
+					src.startOffset += AL.currentCtx.audioCtx.currentTime - src.startTime;
+					AL.stopAndClearAudioQueue(src);
 #if OPENAL_DEBUG
-					console.log('setSourceState pausing source ' + src.id + ' at ' + src.bufPosition.toFixed(4));
+					console.log('setSourceState pausing source ' + src.id + ' at ' + src.startOffset.toFixed(4));
 #endif
 				}
 			} else if (state === 0x1014 /* AL_STOPPED */) {
 				if (src.state !== 0x1011 /* AL_INITIAL */) {
 					src.state = 0x1014 /* AL_STOPPED */;
 					src.bufsProcessed = src.bufQueue.length;
-					AL.stopOutputQueue(src);
+					src.startOffset = 0.0;
+					AL.stopAndClearAudioQueue(src);
 #if OPENAL_DEBUG
 					console.log('setSourceState stopping source ' + src.id);
 #endif
@@ -145,21 +193,11 @@ var LibraryOpenAL = {
 			} else if (state == 0x1011 /* AL_INITIAL */) {
 				if (src.state !== 0x1011 /* AL_INITIAL */) {
 					src.state = 0x1011 /* AL_INITIAL */;
-					src.bufPosition = 0;
 					src.bufsProcessed = 0;
+					src.startOffset = 0.0;
 #if OPENAL_DEBUG
 					console.log('setSourceState initializing source ' + src.id);
 #endif
-				}
-			}
-		},
-
-		stopOutputQueue: function stopOutputQueue(src) {
-			for (var i = 0; i < src.outputQueue.length; i++) {
-				var bufSource = src.outputQueue[i];
-				if (bufSource) {
-					bufSource.stop(0);
-					bufSource = null;
 				}
 			}
 		}
@@ -258,7 +296,7 @@ var LibraryOpenAL = {
 			ac.listener._velocity = [0, 0, 0];
 			ac.listener._orientation = [0, 0, 0, 0, 0, 0];
 			var context = {
-				id: AL.contexts.length + 1;
+				id: AL.contexts.length + 1,
 				audioCtx: ac,
 				err: 0,
 				sources: [],
@@ -361,8 +399,8 @@ var LibraryOpenAL = {
 		}
 
 		for (var i = 0; i < count; ++i) {
-			let srcId = {{{ makeGetValue('sourceIds', 'i*4', 'i32') }}};
-			let src = AL.currentCtx.sources[srcId - 1];
+			var srcId = {{{ makeGetValue('sourceIds', 'i*4', 'i32') }}};
+			var src = AL.currentCtx.sources[srcId - 1];
 			if (!AL.currentCtx.sources[srcId - 1]) {
 #if OPENAL_DEBUG
 				console.error("alDeleteSources called with an invalid source");
@@ -373,7 +411,7 @@ var LibraryOpenAL = {
 		}
 
 		for (var i = 0; i < count; ++i) {
-			let srcId = {{{ makeGetValue('sourceIds', 'i*4', 'i32') }}};
+			var srcId = {{{ makeGetValue('sourceIds', 'i*4', 'i32') }}};
 			AL.setSourceState(AL.currentCtx.sources[srcId - 1], 0x1014 /* AL_STOPPED */);
 			delete AL.currentCtx.sources[srcId - 1];
 		}
@@ -389,15 +427,15 @@ var LibraryOpenAL = {
 		for (var i = 0; i < count; ++i) {
 			var gain = AL.currentCtx.audioCtx.createGain();
 			gain.connect(AL.currentCtx.gain);
-			let src = {
+			var src = {
 				context: AL.currentCtx,
 				id: AL.currentCtx.sources.length + 1,
 				type: 0x1030 /* AL_UNDETERMINED */,
 				state: 0x1011 /* AL_INITIAL */,
 				bufQueue: [],
-				outputQueue: [],
+				audioQueue: [],
 				loop: false,
-				playbackRate: 1,
+				playbackRate: 1.0,
 				_position: [0, 0, 0],
 				_velocity: [0, 0, 0],
 				_direction: [0, 0, 0],
@@ -409,14 +447,14 @@ var LibraryOpenAL = {
 					if (this.panner) this.panner.refDistance = val;
 				},
 				get maxDistance() {
-					return this._maxDistance || 10000;
+					return this._maxDistance || 10000.0;
 				},
 				set maxDistance(val) {
 					this._maxDistance = val;
 					if (this.panner) this.panner.maxDistance = val;
 				},
 				get rolloffFactor() {
-					return this._rolloffFactor || 1;
+					return this._rolloffFactor || 1.0;
 				},
 				set rolloffFactor(val) {
 					this._rolloffFactor = val;
@@ -475,7 +513,8 @@ var LibraryOpenAL = {
 				gain: gain,
 				panner: null,
 				bufsProcessed: 0,
-				bufPosition: 0
+				startTime: 0.0,
+				startOffset: 0.0
 			};
 			AL.currentCtx.sources.push(src);
 			{{{ makeSetValue('sourceIds', 'i*4', 'src.id', 'i32') }}};
@@ -523,7 +562,7 @@ var LibraryOpenAL = {
 			if (value == 0) {
 				src.type = 0x1030 /* AL_UNDETERMINED */;
 				src.bufQueue = [];
-				src.outputQueue = [];
+				src.audioQueue = [];
 			} else {
 				var buf = AL.currentCtx.buffers[value - 1];
 				if (!buf) {
@@ -536,7 +575,7 @@ var LibraryOpenAL = {
 
 				src.type = 0x1028 /* AL_STATIC */;
 				src.bufQueue = [buf];
-				src.outputQueue = [];
+				src.audioQueue = [];
 			}
 
 			AL.updateSource(src);
@@ -603,28 +642,27 @@ var LibraryOpenAL = {
 				AL.currentCtx.err = 0xA003 /* AL_INVALID_VALUE */;
 				return;
 			}
+
+			if (src.playbackRate == value) {
+				return;
+			}
 			src.playbackRate = value;
 
 			if (src.state === 0x1012 /* AL_PLAYING */) {
-				// update currently playing entry
-				AL.shiftOutputQueue(src);
-				var bufSrc = src.outputQueue[0];
-				if (!bufSrc) return; // It is possible that AL.updateSources() has not yet fed the next buffer, if so, skip.
-				var currentTime = AL.currentCtx.audioCtx.currentTime;
-				var oldrate = bufSrc.playbackRate.value;
-				var offset = currentTime - src.bufPosition;
-				// bufSrc.duration is expressed after factoring in playbackRate, so when changing playback rate, need
-				// to recompute/rescale the rate to the new playback speed.
-				bufSrc.duration = (bufSrc.duration - offset) * oldrate / src.playbackRate;
-				if (bufSrc.playbackRate.value != src.playbackRate) bufSrc.playbackRate.value = src.playbackRate;
-				src.bufPosition = currentTime;
+				// clear scheduled buffers
+				AL.cancelScheduledAudio(src);
+				AL.pollOffset(src);
 
-				// stop other buffers
-				for (var k = 1; k < src.outputQueue.length; k++) {
-					var bufSrc = src.outputQueue[k];
-					bufSrc.stop();
+				var audioSrc = src.audioQueue[0];
+				if (!audioSrc) {
+					return; // It is possible that AL.updateSources() has not yet fed the next buffer, if so, skip.
 				}
-				src.outputQueue.length = 1;
+				var oldrate = audioSrc.playbackRate.value;
+				// audioSrc._duration is expressed after factoring in playbackRate, so when changing playback rate, need
+				// to recompute/rescale the rate to the new playback speed.
+				audioSrc._duration = audioSrc._duration * oldrate / src.playbackRate;
+				audioSrc.playbackRate.value = src.playbackRate;
+
 				// update the source to reschedule buffers with the new playbackRate
 				AL.updateSource(src);
 			}
@@ -764,6 +802,10 @@ var LibraryOpenAL = {
 			src.bufQueue.push(AL.currentCtx.buffers[bufferId - 1]);
 		}
 
+		// if the source is looping, clear the queue to reschedule the loop order
+		if (src.loop) {
+			AL.cancelScheduledAudio(src);
+		}
 		AL.updateSource(src);
 	},
 
@@ -815,7 +857,7 @@ var LibraryOpenAL = {
 			var bufId = {{{ makeGetValue('bufferIds', 'i*4', 'i32') }}};
 
 			// Make sure the buffer index is valid.
-			if (!AL.currentCtx.buf[bufId - 1]) {
+			if (!AL.currentCtx.buffers[bufId - 1]) {
 #if OPENAL_DEBUG
 				console.error("alDeleteBuffers called with an invalid buffer");
 #endif
@@ -824,8 +866,9 @@ var LibraryOpenAL = {
 			}
 
 			// Make sure the buffer is no longer in use.
-			for (var src in AL.currentCtx.sources) {
-				for (var k = 0; k < src.bufQueue.length; k++) {
+			for (var j in AL.currentCtx.sources) {
+				var src = AL.currentCtx.sources[j];
+				for (var k in src.bufQueue) {
 					if (bufId === src.bufQueue[k].id) {
 #if OPENAL_DEBUG
 						console.error("alDeleteBuffers called with a used buffer");
@@ -852,9 +895,9 @@ var LibraryOpenAL = {
 		}
 
 		for (var i = 0; i < count; ++i) {
-			let buf = {
-				id = AL.currentCtx.buffers.length + 1;
-				audioBuf = null;
+			var buf = {
+				id: AL.currentCtx.buffers.length + 1,
+				audioBuf: null
 			};
 			AL.currentCtx.buffers.push(buf);
 			{{{ makeSetValue('bufferIds', 'i*4', 'buf.id', 'i32') }}};
