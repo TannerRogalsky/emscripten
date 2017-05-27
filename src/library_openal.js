@@ -5,6 +5,7 @@ var LibraryOpenAL = {
 	$AL: {
 		contexts: [],
 		currentCtx: null,
+		buffers: [],
 
 		alcErr: 0,
 
@@ -14,7 +15,7 @@ var LibraryOpenAL = {
 		QUEUE_INTERVAL: 25,
 		QUEUE_LOOKAHEAD: 100.0 / 1000.0,
 
-		scheduleContextAudio: function scheduleContextAudio(context) {
+		scheduleContextAudio: function(context) {
 			// If we are animating using the requestAnimationFrame method, then the main loop does not run when in the background.
 			// To give a perfect glitch-free audio stop when switching from foreground to background, we need to avoid updating
 			// audio altogether when in the background, so detect that case and kill audio buffer streaming if so.
@@ -27,7 +28,7 @@ var LibraryOpenAL = {
 			}
 		},
 
-		scheduleSourceAudio: function scheduleSourceAudio(src) {
+		scheduleSourceAudio: function(src) {
 			// See comment on scheduleContextAudio above.
 			if (Browser.mainLoop.timingMode == 1/*EM_TIMING_RAF*/ && document['visibilityState'] != 'visible') {
 				return;
@@ -89,7 +90,7 @@ var LibraryOpenAL = {
 					Runtime.warnOnce('Unable to start AudioBufferSourceNode playback! Not supported by the browser?');
 				}
 
-				console.log('scheduleSourceAudio queuing buffer ' + buf.id + ' for source ' + src.id + ' at ' + startTime + ' (offset by ' + startOffset + ')');
+				console.log('scheduleSourceAudio() queuing buffer ' + buf.id + ' for source ' + src.id + ' at ' + startTime + ' (offset by ' + startOffset + ')');
 #endif
 				audioSrc._startTime = startTime;
 				src.audioQueue.push(audioSrc);
@@ -101,14 +102,15 @@ var LibraryOpenAL = {
 		},
 
 		// Clean up old sourceBuffers.
-		updateSource: function updateSource(src) {
+		updateSource: function(src) {
 			if (src.state !== 0x1012 /* AL_PLAYING */) {
 				return;
 			}
 
 			var currentTime = src.context.audioCtx.currentTime;
-			if (src.bufStartTime === 0.0) {
-				src.bufStartTime = currentTime;
+			if (!isFinite(src.bufStartTime)) {
+				src.bufStartTime = currentTime - src.bufOffset / src.playbackRate;
+				src.bufOffset = 0.0;
 			}
 
 			var nextStartTime = 0.0;
@@ -143,7 +145,7 @@ var LibraryOpenAL = {
 					nextStartTime = src.bufStartTime + buf.audioBuf.duration / src.playbackRate;
 
 					if (currentTime < nextStartTime) {
-						src.bufOffset += (currentTime - src.bufStartTime) * src.playbackRate;
+						src.bufOffset = (currentTime - src.bufStartTime) * src.playbackRate;
 						break;
 					}
 
@@ -154,7 +156,7 @@ var LibraryOpenAL = {
 			}
 		},
 
-		cancelPendingSourceAudio: function cancelPendingSourceAudio(src) {
+		cancelPendingSourceAudio: function(src) {
 			AL.updateSource(src);
 
 			for (var i = 1; i < src.audioQueue.length; i++) {
@@ -167,31 +169,31 @@ var LibraryOpenAL = {
 			}
 		},
 
-		stopSourceAudio: function stopSourceAudio(src) {
+		stopSourceAudio: function(src) {
 			for (var i = 0; i < src.audioQueue.length; i++) {
 				src.audioQueue[i].stop();
 			}
 			src.audioQueue.length = 0;
 		},
 
-		setSourceState: function setSourceState(src, state) {
+		setSourceState: function(src, state) {
 			if (state === 0x1012 /* AL_PLAYING */) {
 				if (src.state === 0x1013 /* AL_PAUSED */) {
 #if OPENAL_DEBUG
-					console.log('setSourceState resuming source ' + src.id + ' at ' + src.bufOffset.toFixed(4));
+					console.log('setSourceState() resuming source ' + src.id + ' at ' + src.bufOffset.toFixed(4));
 #endif
 				} else {
 					src.bufsProcessed = 0;
 					src.bufOffset = 0.0;
 #if OPENAL_DEBUG
-					console.log('setSourceState resetting and playing source ' + src.id);
+					console.log('setSourceState() resetting and playing source ' + src.id);
 #endif
 				}
 
 				AL.stopSourceAudio(src);
 
 				src.state = 0x1012 /* AL_PLAYING */;
-				src.bufStartTime = 0.0;
+				src.bufStartTime = Number.NEGATIVE_INFINITY;
 				AL.scheduleSourceAudio(src);
 			} else if (state === 0x1013 /* AL_PAUSED */) {
 				if (src.state === 0x1012 /* AL_PLAYING */) {
@@ -201,28 +203,28 @@ var LibraryOpenAL = {
 
 					src.state = 0x1013 /* AL_PAUSED */;
 #if OPENAL_DEBUG
-					console.log('setSourceState pausing source ' + src.id + ' at ' + src.bufOffset.toFixed(4));
+					console.log('setSourceState() pausing source ' + src.id + ' at ' + src.bufOffset.toFixed(4));
 #endif
 				}
 			} else if (state === 0x1014 /* AL_STOPPED */) {
 				if (src.state !== 0x1011 /* AL_INITIAL */) {
 					src.state = 0x1014 /* AL_STOPPED */;
 					src.bufsProcessed = src.bufQueue.length;
-					src.bufStartTime = 0.0;
+					src.bufStartTime = Number.NEGATIVE_INFINITY;
 					src.bufOffset = 0.0;
 					AL.stopSourceAudio(src);
 #if OPENAL_DEBUG
-					console.log('setSourceState stopping source ' + src.id);
+					console.log('setSourceState() stopping source ' + src.id);
 #endif
 				}
 			} else if (state == 0x1011 /* AL_INITIAL */) {
 				if (src.state !== 0x1011 /* AL_INITIAL */) {
 					src.state = 0x1011 /* AL_INITIAL */;
 					src.bufsProcessed = 0;
-					src.bufStartTime = 0.0;
+					src.bufStartTime = Number.NEGATIVE_INFINITY;
 					src.bufOffset = 0.0;
 #if OPENAL_DEBUG
-					console.log('setSourceState initializing source ' + src.id);
+					console.log('setSourceState() initializing source ' + src.id);
 #endif
 				}
 			}
@@ -262,7 +264,7 @@ var LibraryOpenAL = {
 		var ctx = AL.contexts[contextId - 1];
 		if (AL.currentCtx === ctx) {
 #if OPENAL_DEBUG
-			console.log("alcDestroyContext called with an invalid context");
+			console.log("alcDestroyContext() called with an invalid context");
 #endif
 			AL.alcErr = 0xA002 /* ALC_INVALID_CONTEXT */;
 			return;
@@ -288,7 +290,7 @@ var LibraryOpenAL = {
 	alcCreateContext: function(device, attrList) {
 		if (device != 1) {
 #if OPENAL_DEBUG
-			console.log("alcCreateContext called with an invalid device");
+			console.log("alcCreateContext() called with an invalid device");
 #endif
 			AL.alcErr = 0xA001; /* ALC_INVALID_DEVICE */
 			return 0;
@@ -326,7 +328,6 @@ var LibraryOpenAL = {
 				audioCtx: ac,
 				err: 0,
 				sources: [],
-				buffers: [],
 				interval: setInterval(function() { AL.scheduleContextAudio(context); }, AL.QUEUE_INTERVAL),
 				gain: gain
 			};
@@ -409,27 +410,27 @@ var LibraryOpenAL = {
 			{{{ makeSetValue('data', '0', '1', 'i32') }}};
 		default:
 #if OPENAL_DEBUG
-			console.log("alcGetIntegerv with param " + param + " not implemented yet");
+			console.log("alcGetIntegerv() with param " + param + " not implemented yet");
 #endif
 			AL.alcErr = 0xA003 /* ALC_INVALID_ENUM */;
 			break;
 		}
 	},
 
+	alDeleteSources__deps: ["alSourcei"],
 	alDeleteSources: function(count, sourceIds) {
 		if (!AL.currentCtx) {
 #if OPENAL_DEBUG
-			console.error("alDeleteSources called without a valid context");
+			console.error("alDeleteSources() called without a valid context");
 #endif
 			return;
 		}
 
 		for (var i = 0; i < count; ++i) {
 			var srcId = {{{ makeGetValue('sourceIds', 'i*4', 'i32') }}};
-			var src = AL.currentCtx.sources[srcId - 1];
 			if (!AL.currentCtx.sources[srcId - 1]) {
 #if OPENAL_DEBUG
-				console.error("alDeleteSources called with an invalid source");
+				console.error("alDeleteSources() called with an invalid source");
 #endif
 				AL.currentCtx.err = 0xA001 /* AL_INVALID_NAME */;
 				return;
@@ -439,6 +440,7 @@ var LibraryOpenAL = {
 		for (var i = 0; i < count; ++i) {
 			var srcId = {{{ makeGetValue('sourceIds', 'i*4', 'i32') }}};
 			AL.setSourceState(AL.currentCtx.sources[srcId - 1], 0x1014 /* AL_STOPPED */);
+			_alSourcei(srcId, 0x1009 /* AL_BUFFER */, 0);
 			delete AL.currentCtx.sources[srcId - 1];
 		}
 	},
@@ -446,7 +448,7 @@ var LibraryOpenAL = {
 	alGenSources: function(count, sourceIds) {
 		if (!AL.currentCtx) {
 #if OPENAL_DEBUG
-			console.error("alGenSources called without a valid context");
+			console.error("alGenSources() called without a valid context");
 #endif
 			return;
 		}
@@ -539,7 +541,7 @@ var LibraryOpenAL = {
 				gain: gain,
 				panner: null,
 				bufsProcessed: 0,
-				bufStartTime: 0.0,
+				bufStartTime: Number.NEGATIVE_INFINITY,
 				bufOffset: 0.0
 			};
 			AL.currentCtx.sources.push(src);
@@ -562,14 +564,14 @@ var LibraryOpenAL = {
 	alSourcei: function(sourceId, param, value) {
 		if (!AL.currentCtx) {
 #if OPENAL_DEBUG
-			console.error("alSourcei called without a valid context");
+			console.error("alSourcei() called without a valid context");
 #endif
 			return;
 		}
 		var src = AL.currentCtx.sources[sourceId - 1];
 		if (!src) {
 #if OPENAL_DEBUG
-			console.error("alSourcei called with an invalid source");
+			console.error("alSourcei() called with an invalid source");
 #endif
 			AL.currentCtx.err = 0xA001 /* AL_INVALID_NAME */;
 			return;
@@ -585,12 +587,24 @@ var LibraryOpenAL = {
 			src.loop = (value === 1 /* AL_TRUE */);
 			break;
 		case 0x1009 /* AL_BUFFER */:
+			if (src.state == 0x1012 /* AL_PLAYING */ || src.state == 0x1013 /* AL_PAUSED */) {
+#if OPENAL_DEBUG
+				console.error("alSourcei(AL_BUFFER) called while source is playing or paused");
+#endif
+				AL.currentCtx.err = 0xA004 /* AL_INVALID_OPERATION */;
+				return;
+			}
+
 			if (value == 0) {
+				for (var i in src.bufQueue) {
+					src.bufQueue[i].refCount--;
+				}
+				src.bufQueue.length = 0;
+
+				src.bufsProcessed = 0;
 				src.type = 0x1030 /* AL_UNDETERMINED */;
-				src.bufQueue = [];
-				src.audioQueue = [];
 			} else {
-				var buf = AL.currentCtx.buffers[value - 1];
+				var buf = AL.buffers[value - 1];
 				if (!buf) {
 #if OPENAL_DEBUG
 					console.error("alSourcei(AL_BUFFER) called with an invalid buffer");
@@ -599,9 +613,15 @@ var LibraryOpenAL = {
 					return;
 				}
 
-				src.type = 0x1028 /* AL_STATIC */;
+				for (var i in src.bufQueue) {
+					src.bufQueue[i].refCount--;
+				}
+				src.bufQueue.length = 0;
+
+				buf.refCount++;
 				src.bufQueue = [buf];
-				src.audioQueue = [];
+				src.bufsProcessed = 0;
+				src.type = 0x1028 /* AL_STATIC */;
 			}
 
 			AL.scheduleSourceAudio(src);
@@ -640,7 +660,7 @@ var LibraryOpenAL = {
 			break;
 		default:
 #if OPENAL_DEBUG
-			console.log("alSourcei with param " + param + " not implemented yet");
+			console.log("alSourcei() with param " + param + " not implemented yet");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			break;
@@ -650,14 +670,14 @@ var LibraryOpenAL = {
 	alSourcef: function(sourceId, param, value) {
 		if (!AL.currentCtx) {
 #if OPENAL_DEBUG
-			console.error("alSourcef called without a valid context");
+			console.error("alSourcef() called without a valid context");
 #endif
 			return;
 		}
 		var src = AL.currentCtx.sources[sourceId - 1];
 		if (!src) {
 #if OPENAL_DEBUG
-			console.error("alSourcef called with an invalid source");
+			console.error("alSourcef() called with an invalid source");
 #endif
 			AL.currentCtx.err = 0xA001 /* AL_INVALID_NAME */;
 			return;
@@ -719,7 +739,7 @@ var LibraryOpenAL = {
 			break;
 		default:
 #if OPENAL_DEBUG
-			console.log("alSourcef with param " + param + " not implemented yet");
+			console.log("alSourcef() with param " + param + " not implemented yet");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			break;
@@ -742,14 +762,14 @@ var LibraryOpenAL = {
 	alSource3f: function(sourceId, param, v1, v2, v3) {
 		if (!AL.currentCtx) {
 #if OPENAL_DEBUG
-			console.error("alSource3f called without a valid context");
+			console.error("alSource3f() called without a valid context");
 #endif
 			return;
 		}
 		var src = AL.currentCtx.sources[sourceId - 1];
 		if (!src) {
 #if OPENAL_DEBUG
-			console.error("alSource3f called with an invalid source");
+			console.error("alSource3f() called with an invalid source");
 #endif
 			AL.currentCtx.err = 0xA001 /* AL_INVALID_NAME */;
 			return;
@@ -772,7 +792,7 @@ var LibraryOpenAL = {
 			break;
 		default:
 #if OPENAL_DEBUG
-			console.log("alSource3f with param " + param + " not implemented yet");
+			console.log("alSource3f() with param " + param + " not implemented yet");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			break;
@@ -790,7 +810,7 @@ var LibraryOpenAL = {
 	alSourceQueueBuffers: function(sourceId, count, buffers) {
 		if (!AL.currentCtx) {
 #if OPENAL_DEBUG
-			console.error("alSourceQueueBuffers called without a valid context");
+			console.error("alSourceQueueBuffers() called without a valid context");
 #endif
 			AL.currentCtx.err = 0xA004 /* AL_INVALID_OPERATION */;
 			return;
@@ -798,23 +818,23 @@ var LibraryOpenAL = {
 		var src = AL.currentCtx.sources[sourceId - 1];
 		if (!src) {
 #if OPENAL_DEBUG
-			console.error("alSourceQueueBuffers called with an invalid source");
+			console.error("alSourceQueueBuffers() called with an invalid source");
 #endif
 			AL.currentCtx.err = 0xA001 /* AL_INVALID_NAME */;
 			return;
 		}
 		if (src.type === 0x1028 /* AL_STATIC */) {
 #if OPENAL_DEBUG
-			console.error("alSourceQueueBuffers called while a static buffer is bound");
+			console.error("alSourceQueueBuffers() called while a static buffer is bound");
 #endif
 			AL.currentCtx.err = 0xA004 /* AL_INVALID_OPERATION */;
 			return;
 		}
 		for (var i = 0; i < count; ++i) {
 			var bufferId = {{{ makeGetValue('buffers', 'i*4', 'i32') }}};
-			if (!AL.currentCtx.buffers[bufferId - 1]) {
+			if (!AL.buffers[bufferId - 1]) {
 #if OPENAL_DEBUG
-				console.error("alSourceQueueBuffers called with an invalid buffer");
+				console.error("alSourceQueueBuffers() called with an invalid buffer");
 #endif
 				AL.currentCtx.err = 0xA001 /* AL_INVALID_NAME */;
 				return;
@@ -823,8 +843,10 @@ var LibraryOpenAL = {
 
 		src.type = 0x1029 /* AL_STREAMING */;
 		for (var i = 0; i < count; ++i) {
-			var bufferId = {{{ makeGetValue('buffers', 'i*4', 'i32') }}};
-			src.bufQueue.push(AL.currentCtx.buffers[bufferId - 1]);
+			var bufId = {{{ makeGetValue('buffers', 'i*4', 'i32') }}};
+			var buf = AL.buffers[bufId - 1];
+			buf.refCount++;
+			src.bufQueue.push(buf);
 		}
 
 		// if the source is looping, cancel the schedule so we can reschedule the loop order
@@ -837,14 +859,14 @@ var LibraryOpenAL = {
 	alSourceUnqueueBuffers: function(sourceId, count, bufferIds) {
 		if (!AL.currentCtx) {
 #if OPENAL_DEBUG
-			console.error("alSourceUnqueueBuffers called without a valid context");
+			console.error("alSourceUnqueueBuffers() called without a valid context");
 #endif
 			return;
 		}
 		var src = AL.currentCtx.sources[sourceId - 1];
 		if (!src) {
 #if OPENAL_DEBUG
-			console.error("alSourceUnqueueBuffers called with an invalid source");
+			console.error("alSourceUnqueueBuffers() called with an invalid source");
 #endif
 			AL.currentCtx.err = 0xA001 /* AL_INVALID_NAME */;
 			return;
@@ -856,9 +878,10 @@ var LibraryOpenAL = {
 		}
 
 		for (var i = 0; i < count; i++) {
-			var bufId = src.bufQueue.shift();
+			var buf = src.bufQueue.shift();
+			buf.refCount--;
 			// Write the buffers index out to the return list.
-			{{{ makeSetValue('bufferIds', 'i*4', 'bufId', 'i32') }}};
+			{{{ makeSetValue('bufferIds', 'i*4', 'buf.id', 'i32') }}};
 			src.bufsProcessed--;
 		}
 
@@ -869,11 +892,11 @@ var LibraryOpenAL = {
 	{
 		if (!AL.currentCtx) {
 #if OPENAL_DEBUG
-			console.error("alDeleteBuffers called without a valid context");
+			console.error("alDeleteBuffers() called without a valid context");
 #endif
 			return;
 		}
-		if (count > AL.currentCtx.buffers.length) {
+		if (count > AL.buffers.length) {
 			AL.currentCtx.err = 0xA003 /* AL_INVALID_VALUE */;
 			return;
 		}
@@ -882,9 +905,9 @@ var LibraryOpenAL = {
 			var bufId = {{{ makeGetValue('bufferIds', 'i*4', 'i32') }}};
 
 			// Make sure the buffer index is valid.
-			if (!AL.currentCtx.buffers[bufId - 1]) {
+			if (!AL.buffers[bufId - 1]) {
 #if OPENAL_DEBUG
-				console.error("alDeleteBuffers called with an invalid buffer");
+				console.error("alDeleteBuffers() called with an invalid buffer");
 #endif
 				AL.currentCtx.err = 0xA001 /* AL_INVALID_NAME */;
 				return;
@@ -896,7 +919,7 @@ var LibraryOpenAL = {
 				for (var k in src.bufQueue) {
 					if (bufId === src.bufQueue[k].id) {
 #if OPENAL_DEBUG
-						console.error("alDeleteBuffers called with a used buffer");
+						console.error("alDeleteBuffers() called with a used buffer");
 #endif
 						AL.currentCtx.err = 0xA004 /* AL_INVALID_OPERATION */;
 						return;
@@ -907,24 +930,25 @@ var LibraryOpenAL = {
 
 		for (var i = 0; i < count; ++i) {
 			var bufId = {{{ makeGetValue('bufferIds', 'i*4', 'i32') }}};
-			delete AL.currentCtx.buffers[bufId - 1];
+			delete AL.buffers[bufId - 1];
 		}
 	},
 
 	alGenBuffers: function(count, bufferIds) {
 		if (!AL.currentCtx) {
 #if OPENAL_DEBUG
-			console.error("alGenBuffers called without a valid context");
+			console.error("alGenBuffers() called without a valid context");
 #endif
 			return;
 		}
 
 		for (var i = 0; i < count; ++i) {
 			var buf = {
-				id: AL.currentCtx.buffers.length + 1,
+				id: AL.buffers.length + 1,
+				refCount: 0,
 				audioBuf: null
 			};
-			AL.currentCtx.buffers.push(buf);
+			AL.buffers.push(buf);
 			{{{ makeSetValue('bufferIds', 'i*4', 'buf.id', 'i32') }}};
 		}
 	},
@@ -933,11 +957,11 @@ var LibraryOpenAL = {
 		if (!AL.currentCtx) {
 			return false;
 		}
-		if (bufferId > AL.currentCtx.buffers.length) {
+		if (bufferId > AL.buffers.length) {
 			return false;
 		}
 
-		if (!AL.currentCtx.buffers[bufferId - 1]) {
+		if (!AL.buffers[bufferId - 1]) {
 			return false;
 		} else {
 			return true;
@@ -947,15 +971,15 @@ var LibraryOpenAL = {
 	alBufferData: function(bufferId, format, data, size, freq) {
 		if (!AL.currentCtx) {
 #if OPENAL_DEBUG
-			console.error("alBufferData called without a valid context");
+			console.error("alBufferData() called without a valid context");
 #endif
 			return;
 		}
 
-		var buf = AL.currentCtx.buffers[bufferId - 1];
+		var buf = AL.buffers[bufferId - 1];
 		if (!buf) {
 #if OPENAL_DEBUG
-			console.error("alBufferData called with an invalid buffer");
+			console.error("alBufferData() called with an invalid buffer");
 #endif
 			return;
 		}
@@ -1016,7 +1040,7 @@ var LibraryOpenAL = {
 				break;
 			default:
 #if OPENAL_DEBUG
-				console.error("alBufferData called with invalid format " + format);
+				console.error("alBufferData() called with invalid format " + format);
 #endif
 				AL.currentCtx.err = 0xA003 /* AL_INVALID_VALUE */;
 				break;
@@ -1024,24 +1048,23 @@ var LibraryOpenAL = {
 			buf.audioBuf = ab;
 		} catch (e) {
 #if OPENAL_DEBUG
-			console.error("alBufferData upload failed with an exception " + e);
+			console.error("alBufferData() upload failed with an exception " + e);
 #endif
 			AL.currentCtx.err = 0xA003 /* AL_INVALID_VALUE */;
 		}
 	},
 
-	alGetBufferi: function(bufferId, param, value)
-	{
+	alGetBufferi: function(bufferId, param, value) {
 		if (!AL.currentCtx) {
 #if OPENAL_DEBUG
-			console.error("alGetBufferi called without a valid context");
+			console.error("alGetBufferi() called without a valid context");
 #endif
 			return;
 		}
-		var buf = AL.currentCtx.buffers[buffer - 1];
+		var buf = AL.buffers[buffer - 1];
 		if (!buf) {
 #if OPENAL_DEBUG
-			console.error("alGetBufferi called with an invalid buffer");
+			console.error("alGetBufferi() called with an invalid buffer");
 #endif
 			AL.currentCtx.err = 0xA001 /* AL_INVALID_NAME */;
 			return;
@@ -1068,14 +1091,14 @@ var LibraryOpenAL = {
 	alSourcePlay: function(sourceId) {
 		if (!AL.currentCtx) {
 #if OPENAL_DEBUG
-			console.error("alSourcePlay called without a valid context");
+			console.error("alSourcePlay() called without a valid context");
 #endif
 			return;
 		}
 		var src = AL.currentCtx.sources[sourceId - 1];
 		if (!src) {
 #if OPENAL_DEBUG
-			console.error("alSourcePlay called with an invalid source");
+			console.error("alSourcePlay() called with an invalid source");
 #endif
 			AL.currentCtx.err = 0xA001 /* AL_INVALID_NAME */;
 			return;
@@ -1086,14 +1109,14 @@ var LibraryOpenAL = {
 	alSourceStop: function(sourceId) {
 		if (!AL.currentCtx) {
 #if OPENAL_DEBUG
-			console.error("alSourceStop called without a valid context");
+			console.error("alSourceStop() called without a valid context");
 #endif
 			return;
 		}
 		var src = AL.currentCtx.sources[sourceId - 1];
 		if (!src) {
 #if OPENAL_DEBUG
-			console.error("alSourceStop called with an invalid source");
+			console.error("alSourceStop() called with an invalid source");
 #endif
 			AL.currentCtx.err = 0xA001 /* AL_INVALID_NAME */;
 			return;
@@ -1104,14 +1127,14 @@ var LibraryOpenAL = {
 	alSourceRewind: function(sourceId) {
 		if (!AL.currentCtx) {
 #if OPENAL_DEBUG
-			console.error("alSourceRewind called without a valid context");
+			console.error("alSourceRewind() called without a valid context");
 #endif
 			return;
 		}
 		var src = AL.currentCtx.sources[sourceId - 1];
 		if (!src) {
 #if OPENAL_DEBUG
-			console.error("alSourceRewind called with an invalid source");
+			console.error("alSourceRewind() called with an invalid source");
 #endif
 			AL.currentCtx.err = 0xA001 /* AL_INVALID_NAME */;
 			return;
@@ -1125,14 +1148,14 @@ var LibraryOpenAL = {
 	alSourcePause: function(sourceId) {
 		if (!AL.currentCtx) {
 #if OPENAL_DEBUG
-			console.error("alSourcePause called without a valid context");
+			console.error("alSourcePause() called without a valid context");
 #endif
 			return;
 		}
 		var src = AL.currentCtx.sources[sourceId - 1];
 		if (!src) {
 #if OPENAL_DEBUG
-			console.error("alSourcePause called with an invalid source");
+			console.error("alSourcePause() called with an invalid source");
 #endif
 			AL.currentCtx.err = 0xA001 /* AL_INVALID_NAME */;
 			return;
@@ -1143,14 +1166,14 @@ var LibraryOpenAL = {
 	alGetSourcei: function(sourceId, param, value) {
 		if (!AL.currentCtx) {
 #if OPENAL_DEBUG
-			console.error("alGetSourcei called without a valid context");
+			console.error("alGetSourcei() called without a valid context");
 #endif
 			return;
 		}
 		var src = AL.currentCtx.sources[sourceId - 1];
 		if (!src) {
 #if OPENAL_DEBUG
-			console.error("alGetSourcei called with an invalid source");
+			console.error("alGetSourcei() called with an invalid source");
 #endif
 			AL.currentCtx.err = 0xA001 /* AL_INVALID_NAME */;
 			return;
@@ -1211,14 +1234,14 @@ var LibraryOpenAL = {
 	alGetSourceiv: function(sourceId, param, values) {
 		if (!AL.currentCtx) {
 #if OPENAL_DEBUG
-			console.error("alGetSourceiv called without a valid context");
+			console.error("alGetSourceiv() called without a valid context");
 #endif
 			return;
 		}
 		var src = AL.currentCtx.sources[sourceId - 1];
 		if (!src) {
 #if OPENAL_DEBUG
-			console.error("alGetSourceiv called with an invalid source");
+			console.error("alGetSourceiv() called with an invalid source");
 #endif
 			AL.currentCtx.err = 0xA001 /* AL_INVALID_NAME */;
 			return;
@@ -1236,7 +1259,7 @@ var LibraryOpenAL = {
 			break;
 		default:
 #if OPENAL_DEBUG
-			console.error("alGetSourceiv with param " + param + " not implemented yet");
+			console.error("alGetSourceiv() with param " + param + " not implemented yet");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			break;
@@ -1246,14 +1269,14 @@ var LibraryOpenAL = {
 	alGetSourcef: function(sourceId, param, value) {
 		if (!AL.currentCtx) {
 #if OPENAL_DEBUG
-			console.error("alGetSourcef called without a valid context");
+			console.error("alGetSourcef() called without a valid context");
 #endif
 			return;
 		}
 		var src = AL.currentCtx.sources[sourceId - 1];
 		if (!src) {
 #if OPENAL_DEBUG
-			console.error("alGetSourcef called with an invalid source");
+			console.error("alGetSourcef() called with an invalid source");
 #endif
 			AL.currentCtx.err = 0xA001 /* AL_INVALID_NAME */;
 			return;
@@ -1303,14 +1326,14 @@ var LibraryOpenAL = {
 	alGetSourcefv: function(sourceId, param, values) {
 		if (!AL.currentCtx) {
 #if OPENAL_DEBUG
-			console.error("alGetSourcefv called without a valid context");
+			console.error("alGetSourcefv() called without a valid context");
 #endif
 			return;
 		}
 		var src = AL.currentCtx.sources[sourceId - 1];
 		if (!src) {
 #if OPENAL_DEBUG
-			console.error("alGetSourcefv called with an invalid source");
+			console.error("alGetSourcefv() called with an invalid source");
 #endif
 			AL.currentCtx.err = 0xA001 /* AL_INVALID_NAME */;
 			return;
@@ -1351,7 +1374,7 @@ var LibraryOpenAL = {
 			break;
 		default:
 #if OPENAL_DEBUG
-			console.error("alGetSourcefv with param " + param + " not implemented yet");
+			console.error("alGetSourcefv() with param " + param + " not implemented yet");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			break;
@@ -1369,7 +1392,7 @@ var LibraryOpenAL = {
 	alGetListenerf: function(pname, value) {
 		if (!AL.currentCtx) {
 #if OPENAL_DEBUG
-			console.error("alGetListenerf called without a valid context");
+			console.error("alGetListenerf() called without a valid context");
 #endif
 			return;
 		}
@@ -1379,7 +1402,7 @@ var LibraryOpenAL = {
 			break;
 		default:
 #if OPENAL_DEBUG
-			console.error("alGetListenerf with param " + pname + " not implemented yet");
+			console.error("alGetListenerf() with param " + pname + " not implemented yet");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			break;
@@ -1390,7 +1413,7 @@ var LibraryOpenAL = {
 	alGetListenerfv: function(pname, values) {
 		if (!AL.currentCtx) {
 #if OPENAL_DEBUG
-			console.error("alGetListenerfv called without a valid context");
+			console.error("alGetListenerfv() called without a valid context");
 #endif
 			return;
 		}
@@ -1418,7 +1441,7 @@ var LibraryOpenAL = {
 			break;
 		default:
 #if OPENAL_DEBUG
-			console.error("alGetListenerfv with param " + pname + " not implemented yet");
+			console.error("alGetListenerfv() with param " + pname + " not implemented yet");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			break;
@@ -1428,14 +1451,14 @@ var LibraryOpenAL = {
 	alGetListeneri: function(pname, value) {
 		if (!AL.currentCtx) {
 #if OPENAL_DEBUG
-			console.error("alGetListeneri called without a valid context");
+			console.error("alGetListeneri() called without a valid context");
 #endif
 			return;
 		}
 		switch (pname) {
 		default:
 #if OPENAL_DEBUG
-			console.error("alGetListeneri with param " + pname + " not implemented yet");
+			console.error("alGetListeneri() with param " + pname + " not implemented yet");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			break;
@@ -1445,7 +1468,7 @@ var LibraryOpenAL = {
 	alListenerf: function(param, value) {
 		if (!AL.currentCtx) {
 #if OPENAL_DEBUG
-			console.error("alListenerf called without a valid context");
+			console.error("alListenerf() called without a valid context");
 #endif
 			return;
 		}
@@ -1455,7 +1478,7 @@ var LibraryOpenAL = {
 			break;
 		default:
 #if OPENAL_DEBUG
-			console.error("alListenerf with param " + param + " not implemented yet");
+			console.error("alListenerf() with param " + param + " not implemented yet");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			break;
@@ -1465,14 +1488,14 @@ var LibraryOpenAL = {
 	alEnable: function(param) {
 		if (!AL.currentCtx) {
 #if OPENAL_DEBUG
-			console.error("alEnable called without a valid context");
+			console.error("alEnable() called without a valid context");
 #endif
 			return;
 		}
 		switch (param) {
 		default:
 #if OPENAL_DEBUG
-			console.error("alEnable with param " + param + " not implemented yet");
+			console.error("alEnable() with param " + param + " not implemented yet");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			break;
@@ -1482,24 +1505,42 @@ var LibraryOpenAL = {
 	alDisable: function(param) {
 		if (!AL.currentCtx) {
 #if OPENAL_DEBUG
-			console.error("alDisable called without a valid context");
+			console.error("alDisable() called without a valid context");
 #endif
 			return;
 		}
 		switch (pname) {
 		default:
 #if OPENAL_DEBUG
-			console.error("alDisable with param " + param + " not implemented yet");
+			console.error("alDisable() with param " + param + " not implemented yet");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			break;
 		}
 	},
 
+	alIsEnabled: function(param) {
+		if (!AL.currentCtx) {
+#if OPENAL_DEBUG
+			console.error("alIsEnabled() called without a valid context");
+#endif
+		}
+		switch (pname) {
+		default:
+#if OPENAL_DEBUG
+			console.error("alDisable() with param " + param + " not implemented yet");
+#endif
+			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
+			break;
+		}
+
+		return 0;
+	},
+
 	alListener3f: function(param, v1, v2, v3) {
 		if (!AL.currentCtx) {
 #if OPENAL_DEBUG
-			console.error("alListener3f called without a valid context");
+			console.error("alListener3f() called without a valid context");
 #endif
 			return;
 		}
@@ -1520,7 +1561,7 @@ var LibraryOpenAL = {
 			break;
 		default:
 #if OPENAL_DEBUG
-			console.error("alListener3f with param " + param + " not implemented yet");
+			console.error("alListener3f() with param " + param + " not implemented yet");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			break;
@@ -1530,7 +1571,7 @@ var LibraryOpenAL = {
 	alListenerfv: function(param, values) {
 		if (!AL.currentCtx) {
 #if OPENAL_DEBUG
-			console.error("alListenerfv called without a valid context");
+			console.error("alListenerfv() called without a valid context");
 #endif
 			return;
 		}
@@ -1572,7 +1613,7 @@ var LibraryOpenAL = {
 			break;
 		default:
 #if OPENAL_DEBUG
-			console.error("alListenerfv with param " + param + " not implemented yet");
+			console.error("alListenerfv() with param " + param + " not implemented yet");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			break;
