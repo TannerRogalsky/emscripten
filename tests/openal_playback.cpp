@@ -175,6 +175,55 @@ int main() {
   alGetSourcei(sources[0], AL_SOURCE_STATE, &state);
   assert(state == AL_INITIAL);
 
+  {
+    float sampleOffset, secondOffset, byteOffset;
+    alGetSourcef(sources[0], AL_SAMPLE_OFFSET, &sampleOffset);
+    alGetSourcef(sources[0], AL_SEC_OFFSET, &secondOffset);
+    alGetSourcef(sources[0], AL_BYTE_OFFSET, &byteOffset);
+    assert(sampleOffset == 0);
+    assert(secondOffset == 0);
+    assert(byteOffset == 0);
+
+    float secondOffsetTestValue = 0.25;
+    alSourcef(sources[0], AL_SEC_OFFSET, secondOffsetTestValue);
+
+    alGetSourcef(sources[0], AL_SAMPLE_OFFSET, &sampleOffset);
+    alGetSourcef(sources[0], AL_SEC_OFFSET, &secondOffset);
+    alGetSourcef(sources[0], AL_BYTE_OFFSET, &byteOffset);
+    assert(secondOffset == secondOffsetTestValue);
+    assert(sampleOffset == secondOffset * frequency);
+    assert(byteOffset == secondOffset * frequency * channels);
+
+    alSourcef(sources[0], AL_BYTE_OFFSET, secondOffset * frequency * channels);
+
+    alGetSourcef(sources[0], AL_SAMPLE_OFFSET, &sampleOffset);
+    alGetSourcef(sources[0], AL_SEC_OFFSET, &secondOffset);
+    alGetSourcef(sources[0], AL_BYTE_OFFSET, &byteOffset);
+    assert(secondOffset == secondOffsetTestValue);
+    assert(sampleOffset == secondOffset * frequency);
+    assert(byteOffset == secondOffset * frequency * channels);
+
+    alSourcef(sources[0], AL_SAMPLE_OFFSET, secondOffset * frequency);
+
+    alGetSourcef(sources[0], AL_SAMPLE_OFFSET, &sampleOffset);
+    alGetSourcef(sources[0], AL_SEC_OFFSET, &secondOffset);
+    alGetSourcef(sources[0], AL_BYTE_OFFSET, &byteOffset);
+    assert(secondOffset == secondOffsetTestValue);
+    assert(sampleOffset == secondOffset * frequency);
+    assert(byteOffset == secondOffset * frequency * channels);
+
+    float pitchTestValue = 2.0;
+    alSourcef(sources[0], AL_PITCH, pitchTestValue);
+
+    alGetSourcef(sources[0], AL_SAMPLE_OFFSET, &sampleOffset);
+    alGetSourcef(sources[0], AL_SEC_OFFSET, &secondOffset);
+    alGetSourcef(sources[0], AL_BYTE_OFFSET, &byteOffset);
+    assert(secondOffset == secondOffsetTestValue * pitchTestValue);
+    assert(sampleOffset == secondOffset * frequency);
+    assert(byteOffset == secondOffset * frequency * channels);
+  }
+
+  alSourcef(sources[0], AL_PITCH, 1.0);
   alSourcePlay(sources[0]);
 
   alGetSourcei(sources[0], AL_SOURCE_STATE, &state);

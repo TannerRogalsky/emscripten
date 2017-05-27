@@ -621,6 +621,17 @@ var LibraryOpenAL = {
     case 0x1020 /* AL_REFERENCE_DISTANCE */:
       src.refDistance = value;
       break;
+    case 0x1024 /* AL_SEC_OFFSET */:
+      src.bufferPosition = value;
+      break;
+    case 0x1025 /* AL_SAMPLE_OFFSET */:
+      var currentBuffer = src.queue[src.buffersPlayed].buffer;
+      src.bufferPosition = value / currentBuffer.sampleRate;
+      break;
+    case 0x1026 /* AL_BYTE_OFFSET */:
+    var currentBuffer = src.queue[src.buffersPlayed].buffer;
+      src.bufferPosition = value / (currentBuffer.sampleRate * currentBuffer.bytesPerSample);
+      break;
     default:
 #if OPENAL_DEBUG
       console.log("alSourcef with param " + param + " not implemented yet");
@@ -1173,12 +1184,27 @@ var LibraryOpenAL = {
     case 0x1020 /* AL_REFERENCE_DISTANCE */:
       {{{ makeSetValue('value', '0', 'src.refDistance', 'float') }}}
       break;
-    // case 0x1024 /* AL_SEC_OFFSET */:
-    //   break;
-    // case 0x1025 /* AL_SAMPLE_OFFSET */:
-    //   break;
-    // case 0x1026 /* AL_BYTE_OFFSET */:
-    //   break;
+    case 0x1024 /* AL_SEC_OFFSET */:
+    case 0x1025 /* AL_SAMPLE_OFFSET */:
+    case 0x1026 /* AL_BYTE_OFFSET */:
+      var totalDuration = 0;
+      for (var i = 0; i < src.queue.length; i++) {
+        totalDuration += src.queue[i].buffer.duration;
+      }
+      var loopedSecondOffset = (src.bufferPosition * src.playbackRate) % totalDuration;
+      var currentBuffer = src.queue[src.buffersPlayed].buffer;
+      switch (param) {
+        case 0x1024 /* AL_SEC_OFFSET */:
+          {{{ makeSetValue('value', '0', 'loopedSecondOffset', 'float') }}}
+          break;
+        case 0x1025 /* AL_SAMPLE_OFFSET */:
+          {{{ makeSetValue('value', '0', 'loopedSecondOffset * src.context.ctx.sampleRate', 'float') }}}
+          break;
+        case 0x1026 /* AL_BYTE_OFFSET */:
+          {{{ makeSetValue('value', '0', 'loopedSecondOffset * src.context.ctx.sampleRate * currentBuffer.bytesPerSample', 'float') }}}
+          break;
+      }
+      break;
     default:
       AL.currentContext.err = 0xA002 /* AL_INVALID_ENUM */;
       break;
