@@ -1988,7 +1988,7 @@ def parse_args(newargs):
       should_exit = True
     elif newargs[i] == '--clear-ports':
       logging.info('clearing ports and cache as requested by --clear-ports')
-      options.system_libs.Ports.erase()
+      system_libs.Ports.erase()
       shared.Cache.erase()
       shared.check_sanity(force=True) # this is a good time for a sanity check
       should_exit = True
@@ -2331,13 +2331,23 @@ def modularize(final):
   src = open(final).read()
   final = final + '.modular.js'
   f = open(final, 'w')
-  f.write('var ' + shared.Settings.EXPORT_NAME + ' = function(' + shared.Settings.EXPORT_NAME + ') {\n')
+  f.write('var ' + shared.Settings.EXPORT_NAME + '\n')
+  f.write('(function() {\n')
+  f.write('  var scriptSrc;\n')
+  f.write('  if (typeof document !== \'undefined\' && document.currentScript) scriptSrc = document.currentScript.src;\n')
+  f.write(shared.Settings.EXPORT_NAME + ' = function(' + shared.Settings.EXPORT_NAME + ') {\n')
   f.write('  ' + shared.Settings.EXPORT_NAME + ' = ' + shared.Settings.EXPORT_NAME + ' || {};\n')
+  f.write('  if (!' + shared.Settings.EXPORT_NAME + '.currentScriptUrl) ' + shared.Settings.EXPORT_NAME + '.currentScriptUrl = scriptSrc;\n')
   f.write('  var Module = ' + shared.Settings.EXPORT_NAME + ';\n') # included code may refer to Module (e.g. from file packager), so alias it
   f.write('\n')
   f.write(src)
   f.write('\n')
   f.write('  return ' + shared.Settings.EXPORT_NAME + ';\n')
+  f.write('};\n')
+  f.write('})();\n');
+  # Export the function if this is for Node (or similar UMD-style exporting), otherwise it is lost.
+  f.write('if (typeof module === "object" && module.exports) {\n')
+  f.write("  module['exports'] = " + shared.Settings.EXPORT_NAME + ';\n')
   f.write('};\n')
   f.close()
   if DEBUG: save_intermediate('modularized', 'js')
