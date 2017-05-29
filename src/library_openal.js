@@ -1,38 +1,47 @@
 //"use strict";
 
 var LibraryOpenAL = {
-	// *****************
-	// *** INTERNALS ***
-	// *****************
+	// ************************************************************************
+	// ** INTERNALS 
+	// ************************************************************************
 
 	$AL__deps: ["$Browser"],
 	$AL: {
-		// -----------------
-		// --- Constants ---
-		// -----------------
+		// ------------------------------------------------------
+		// -- Constants 
+		// ------------------------------------------------------
 
 		QUEUE_INTERVAL: 25,
 		QUEUE_LOOKAHEAD: 100.0 / 1000.0,
 
-		// ------------------
-		// --- ALC Fields ---
-		// ------------------
+		// ------------------------------------------------------
+		// -- ALC Fields
+		// ------------------------------------------------------
 
-		alcErr: 0,
+		_alcErr: 0,
+		get alcErr() {
+			return this._alcErr;
+		},
+		set alcErr(val) {
+			if (this._alcErr === 0 /* ALC_NO_ERROR */) {
+				this._alcErr = val;
+			}
+		},
+
 		alcStringCache: {},
 
-		// -----------------
-		// --- AL Fields ---
-		// -----------------
+		// ------------------------------------------------------
+		// -- AL Fields
+		// ------------------------------------------------------
 
 		stringCache: {},
 		contexts: [],
 		currentCtx: null,
 		buffers: [],
 
-		// --------------------
-		// --- Mixing Logic ---
-		// --------------------
+		// ------------------------------------------------------
+		// -- Mixing Logic
+		// ------------------------------------------------------
 
 		scheduleContextAudio: function(context) {
 			// If we are animating using the requestAnimationFrame method, then the main loop does not run when in the background.
@@ -250,9 +259,9 @@ var LibraryOpenAL = {
 			}
 		},
 
-		// ------------------------
-		// --- Accessor Helpers ---
-		// ------------------------
+		// ------------------------------------------------------
+		// -- Accessor Helpers
+		// ------------------------------------------------------
 
 		getDoubleHelper: function(funcname, param) {
 			if (!AL.currentCtx) {
@@ -347,13 +356,13 @@ var LibraryOpenAL = {
 		}
 	},
 
-	// ***************
-	// *** ALC API ***
-	// ***************
+	// ***************************************************************************
+	// ** ALC API 
+	// ***************************************************************************
 
-	// ---------------------
-	// --- ALC Resources ---
-	// ---------------------
+	// -------------------------------------------------------
+	// -- ALC Resources
+	// -------------------------------------------------------
 
 	alcOpenDevice: function(deviceName) {
 		if (typeof(AudioContext) !== "undefined" || typeof(webkitAudioContext) !== "undefined") {
@@ -406,7 +415,15 @@ var LibraryOpenAL = {
 			var context = {
 				id: AL.contexts.length + 1,
 				audioCtx: ac,
-				err: 0,
+				_err: 0,
+				get err() {
+					return this._err;
+				},
+				set err(val) {
+					if (this._err === 0 /* AL_NO_ERROR */) {
+						this._err = val;
+					}
+				},
 				sources: [],
 				interval: setInterval(function() { AL.scheduleContextAudio(context); }, AL.QUEUE_INTERVAL),
 				gain: gain
@@ -456,13 +473,13 @@ var LibraryOpenAL = {
 		return false;
 	},
 
-	// -----------------
-	// --- ALC State ---
-	// -----------------
+	// -------------------------------------------------------
+	// -- ALC State
+	// -------------------------------------------------------
 
 	alcGetError: function(device) {
 		var err = AL.alcErr;
-		AL.alcErr = 0;
+		AL.alcErr = 0 /* ALC_NO_ERROR */;
 		return err;
 	},
 
@@ -695,13 +712,13 @@ var LibraryOpenAL = {
 		}
 	},
 
-	// **************
-	// *** AL API ***
-	// **************
+	// ***************************************************************************
+	// ** AL API 
+	// ***************************************************************************
 
-	// --------------------
-	// --- AL Resources ---
-	// --------------------
+	// -------------------------------------------------------
+	// -- AL Resources
+	// -------------------------------------------------------
 
 	alGenBuffers: function(count, bufferIds) {
 		if (!AL.currentCtx) {
@@ -894,9 +911,9 @@ var LibraryOpenAL = {
 		}
 	},
 
-	// ------------------------
-	// --- AL Context State ---
-	// ------------------------
+	// -------------------------------------------------------
+	// --- AL Context State
+	// -------------------------------------------------------
 
 	alGetError: function() {
 		if (!AL.currentCtx) {
@@ -1238,9 +1255,9 @@ var LibraryOpenAL = {
 		Runtime.warnOnce("alDopplerFactor() is not yet implemented! Ignoring all calls to it.");
 	},
 
-	// -------------------------
-	// --- AL Listener State ---
-	// -------------------------
+	// -------------------------------------------------------
+	// -- AL Listener State
+	// -------------------------------------------------------
 
 	alGetListeneri: function(pname, value) {
 		if (!AL.currentCtx) {
@@ -1529,9 +1546,9 @@ var LibraryOpenAL = {
 		}
 	},
 
-	// -----------------------
-	// --- AL Buffer State ---
-	// -----------------------
+	// -------------------------------------------------------
+	// -- AL Buffer State
+	// -------------------------------------------------------
 
 	alIsBuffer: function(bufferId) {
 		if (!AL.currentCtx) {
@@ -1743,9 +1760,9 @@ var LibraryOpenAL = {
 		AL.bufferDummyAccessor("alBufferfv()", buffer);
 	},
 
-	// --------------------
-	// --- Source State ---
-	// --------------------
+	// -------------------------------------------------------
+	// -- AL Source State
+	// -------------------------------------------------------
 
 	alIsSource: function(sourceId) {
 		if (!AL.currentCtx) {
