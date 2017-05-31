@@ -53,7 +53,7 @@ var LibraryOpenAL = {
 			}
 
 			for (var i in context.sources) {
-				AL.scheduleSourceAudio(context.sources[i], AL.QUEUE_LOOKAHEAD);
+				AL.scheduleSourceAudio(context.sources[i]);
 			}
 		},
 
@@ -62,7 +62,6 @@ var LibraryOpenAL = {
 			if (Browser.mainLoop.timingMode === 1/*EM_TIMING_RAF*/ && document["visibilityState"] != "visible") {
 				return;
 			}
-
 			if (src.state !== 0x1012 /* AL_PLAYING */) {
 				return;
 			}
@@ -80,6 +79,9 @@ var LibraryOpenAL = {
 				bufCursor++;
 			}
 
+			if (!lookahead) {
+				lookahead = AL.QUEUE_LOOKAHEAD;
+			}
 			var lookaheadTime = src.context.audioCtx.currentTime + lookahead;
 			while (startTime < lookaheadTime) {
 				if (bufCursor >= src.bufQueue.length) {
@@ -209,7 +211,7 @@ var LibraryOpenAL = {
 			if (state === 0x1012 /* AL_PLAYING */) {
 				if (src.state === 0x1013 /* AL_PAUSED */) {
 #if OPENAL_DEBUG
-					console.log("setSourceState() resuming source " + src.id + " at " + src.bufOffset.toFixed(4));
+					console.log("setSourceState() resuming source " + src.id + " at " + src.bufOffset);
 #endif
 				} else {
 					src.bufsProcessed = 0;
@@ -232,7 +234,7 @@ var LibraryOpenAL = {
 
 					src.state = 0x1013 /* AL_PAUSED */;
 #if OPENAL_DEBUG
-					console.log("setSourceState() pausing source " + src.id + " at " + src.bufOffset.toFixed(4));
+					console.log("setSourceState() pausing source " + src.id + " at " + src.bufOffset);
 #endif
 				}
 			} else if (state === 0x1014 /* AL_STOPPED */) {
@@ -1127,6 +1129,7 @@ var LibraryOpenAL = {
 
 		for (var i = 0; i < count; ++i) {
 			var bufId = {{{ makeGetValue("pBufferIds", "i*4", "i32") }}};
+			/// Deleting the 0 buffer is a legal NOP, so ignore it
 			if (bufId === 0) {
 				continue;
 			}
@@ -2325,13 +2328,27 @@ var LibraryOpenAL = {
 			return;
 		}
 		for (var i = 0; i < count; ++i) {
-			var bufferId = {{{ makeGetValue("pBufferIds", "i*4", "i32") }}};
-			if (!AL.buffers[bufferId - 1]) {
+			var bufId = {{{ makeGetValue("pBufferIds", "i*4", "i32") }}};
+			var buf = AL.buffers[bufId - 1];
+			if (!buf) {
 #if OPENAL_DEBUG
 				console.error("alSourceQueueBuffers() called with an invalid buffer");
 #endif
 				AL.currentCtx.err = 0xA001 /* AL_INVALID_NAME */;
 				return;
+			}
+
+			// All buffers in a queue must have the same format
+			var templateBuf = src.bufQueue[0];
+			if (templateBuf && (
+				buf.audioBuf.sampleRate !== templateBuf.audioBuf.sampleRate
+				|| buf.audioBuf.bytesPerSample !== templateBuf.audioBuf.bytesPerSample
+				|| buf.audioBuf.numberOfChannels !== templateBuf.audioBuf.numberOfChannels)
+			) {
+#if OPENAL_DEBUG
+				console.error("alSourceQueueBuffers() called with a buffer of different format");
+#endif
+				AL.currentCtx.err = 0xA004 /* AL_INVALID_OPERATION */;
 			}
 		}
 
