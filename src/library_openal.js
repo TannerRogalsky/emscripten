@@ -132,7 +132,7 @@ var LibraryOpenAL = {
 			}
 		},
 
-		// Clean up old sourceBuffers.
+		// Advance the state of a source forward to the current time
 		updateSource: function(src) {
 			if (src.state !== 0x1012 /* AL_PLAYING */) {
 				return;
@@ -378,22 +378,44 @@ var LibraryOpenAL = {
 				return;
 			}
 
+			var listener = AL.currentCtx.audioCtx.listener;
 			switch (param) {
 			case 0x1004 /* AL_POSITION */:
-				AL.currentCtx.audioCtx.listener._position = value;
-				AL.currentCtx.audioCtx.listener.setPosition(value[0], value[1], value[2]);
+				listener._position = value;
+				if (listener.positionX) {
+					listener.positionX.value = value[0];
+					listener.positionY.value = value[1];
+					listener.positionZ.value = value[2];
+				} else {
+#if OPENAL_DEBUG
+					Runtime.warnOnce("Listener position attributes are not present, falling back to setPosition()");
+#endif
+					listener.setPosition(value[0], value[1], value[2]);
+				}
 				return;
 			case 0x1006 /* AL_VELOCITY */:
-				AL.currentCtx.audioCtx.listener._velocity = value;
+				listener._velocity = value;
 				return;
 			case 0x100A /* AL_GAIN */:
 				if (AL.currentCtx.gain.gain.value != value) AL.currentCtx.gain.gain.value = value;
 				return;
 			case 0x100F /* AL_ORIENTATION */:
-				AL.currentCtx.audioCtx.listener._orientation = value;
-				AL.currentCtx.audioCtx.listener.setOrientation(
-					value[0], value[1], value[2],
-					value[3], value[4], value[5]);
+				listener._orientation = value;
+				if (listener.forwardX) {
+					listener.forwardX.value = value[0];
+					listener.forwardY.value = value[1];
+					listener.forwardZ.value = value[2];
+					listener.upX.value = value[3];
+					listener.upY.value = value[4];
+					listener.upZ.value = value[5];
+				} else {
+#if OPENAL_DEBUG
+					Runtime.warnOnce("Listener orientation attributes are not present, falling back to setOrientation()");
+#endif
+					listener.setOrientation(
+						value[0], value[1], value[2],
+						value[3], value[4], value[5]);
+				}
 				return;
 			default:
 #if OPENAL_DEBUG
@@ -592,7 +614,17 @@ var LibraryOpenAL = {
 						panner.refDistance = src.refDistance;
 						panner.maxDistance = src.maxDistance;
 						panner.rolloffFactor = src.rolloffFactor;
-						panner.setPosition(src.position[0], src.position[1], src.position[2]);
+						src.position = src.position;
+						if (panner.positionX) {
+							panner.positionX.value = src.position[0];
+							panner.positionY.value = src.position[1];
+							panner.positionZ.value = src.position[2];
+						} else {
+#if OPENAL_DEBUG
+							Runtime.warnOnce("Panner position attributes are not present, falling back to setPosition()");
+#endif
+							panner.setPosition(src.position[0], src.position[1], src.position[2]);
+						}
 						// TODO: If support for doppler effect is reintroduced, compute the doppler
 						// speed pitch factor and apply it here.
 						panner.connect(AL.currentCtx.gain);
@@ -1213,7 +1245,18 @@ var LibraryOpenAL = {
 					this._position[0] = val[0];
 					this._position[1] = val[1];
 					this._position[2] = val[2];
-					if (this.panner) this.panner.setPosition(val[0], val[1], val[2]);
+					if (this.panner) {
+						if (this.panner.positionX) {
+							this.panner.positionX.value = val[0];
+							this.panner.positionY.value = val[1];
+							this.panner.positionZ.value = val[2];
+						} else {
+#if OPENAL_DEBUG
+							Runtime.warnOnce("Panner position attributes are not present, falling back to setPosition()");
+#endif
+							this.panner.setPosition(val[0], val[1], val[2]);
+						}
+					}
 				},
 				get velocity() {
 					return this._velocity;
@@ -1233,7 +1276,18 @@ var LibraryOpenAL = {
 					this._direction[0] = val[0];
 					this._direction[1] = val[1];
 					this._direction[2] = val[2];
-					if (this.panner) this.panner.setOrientation(val[0], val[1], val[2]);
+					if (this.panner) {
+						if (this.panner.orientationX) {
+							this.panner.orientationX.value = val[0];
+							this.panner.orientationY.value = val[1];
+							this.panner.orientationZ.value = val[2];
+						} else {
+#if OPENAL_DEBUG
+							Runtime.warnOnce("Panner orientation attributes are not present, falling back to setOrientation()");
+#endif
+							this.panner.setOrientation(val[0], val[1], val[2]);
+						}
+					}
 				},
 				get coneOuterGain() {
 					return this._coneOuterGain || 0.0;
