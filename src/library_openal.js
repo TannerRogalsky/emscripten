@@ -100,9 +100,7 @@ var LibraryOpenAL = {
 				audioSrc._duration = duration;
 				audioSrc.buffer = buf.audioBuf;
 				audioSrc.connect(src.gain);
-				if (src.playbackRate != 1.0) {
-					audioSrc.playbackRate.value = src.playbackRate;
-				}
+				audioSrc.playbackRate.value = src.playbackRate;
 
 				if (typeof(audioSrc.start) !== "undefined") {
 					startTime = Math.max(startTime, src.context.audioCtx.currentTime);
@@ -397,7 +395,7 @@ var LibraryOpenAL = {
 				listener._velocity = value;
 				return;
 			case 0x100A /* AL_GAIN */:
-				if (AL.currentCtx.gain.gain.value != value) AL.currentCtx.gain.gain.value = value;
+				AL.currentCtx.gain.gain.value = value;
 				return;
 			case 0x100F /* AL_ORIENTATION */:
 				listener._orientation = value;
@@ -577,6 +575,7 @@ var LibraryOpenAL = {
 #if OPENAL_DEBUG
 				console.error(funcname + "() called without a valid context");
 #endif
+				AL.currentCtx.err = 0xA004 /* AL_INVALID_OPERATION */;
 				return;
 			}
 			var src = AL.currentCtx.sources[sourceId - 1];
@@ -1133,6 +1132,7 @@ var LibraryOpenAL = {
 #if OPENAL_DEBUG
 			console.error("alGenBuffers() called without a valid context");
 #endif
+			AL.currentCtx.err = 0xA004 /* AL_INVALID_OPERATION */;
 			return;
 		}
 
@@ -1152,6 +1152,7 @@ var LibraryOpenAL = {
 #if OPENAL_DEBUG
 			console.error("alDeleteBuffers() called without a valid context");
 #endif
+			AL.currentCtx.err = 0xA004 /* AL_INVALID_OPERATION */;
 			return;
 		}
 		if (count > AL.buffers.length) {
@@ -1200,6 +1201,7 @@ var LibraryOpenAL = {
 #if OPENAL_DEBUG
 			console.error("alGenSources() called without a valid context");
 #endif
+			AL.currentCtx.err = 0xA004 /* AL_INVALID_OPERATION */;
 			return;
 		}
 		for (var i = 0; i < count; ++i) {
@@ -1222,21 +1224,27 @@ var LibraryOpenAL = {
 				},
 				set refDistance(val) {
 					this._refDistance = val;
-					if (this.panner) this.panner.refDistance = val;
+					if (this.panner) {
+						this.panner.refDistance = val;
+					}
 				},
 				get maxDistance() {
 					return this._maxDistance || 10000.0;
 				},
 				set maxDistance(val) {
 					this._maxDistance = val;
-					if (this.panner) this.panner.maxDistance = val;
+					if (this.panner) {
+						this.panner.maxDistance = val;
+					}
 				},
 				get rolloffFactor() {
 					return this._rolloffFactor || 1.0;
 				},
 				set rolloffFactor(val) {
 					this._rolloffFactor = val;
-					if (this.panner) this.panner.rolloffFactor = val;
+					if (this.panner) {
+						this.panner.rolloffFactor = val;
+					}
 				},
 				get position() {
 					return this._position;
@@ -1294,21 +1302,27 @@ var LibraryOpenAL = {
 				},
 				set coneOuterGain(val) {
 					this._coneOuterGain = val;
-					if (this.panner) this.panner.coneOuterGain = val;
+					if (this.panner) {
+						this.panner.coneOuterGain = val;
+					}
 				},
 				get coneInnerAngle() {
 					return this._coneInnerAngle || 360.0;
 				},
 				set coneInnerAngle(val) {
 					this._coneInnerAngle = val;
-					if (this.panner) this.panner.coneInnerAngle = val;
+					if (this.panner) {
+						this.panner.coneInnerAngle = val;
+					}
 				},
 				get coneOuterAngle() {
 					return this._coneOuterAngle || 360.0;
 				},
 				set coneOuterAngle(val) {
 					this._coneOuterAngle = val;
-					if (this.panner) this.panner.coneOuterAngle = val;
+					if (this.panner) {
+						this.panner.coneOuterAngle = val;
+					}
 				},
 				gain: gain,
 				panner: null,
@@ -1327,6 +1341,7 @@ var LibraryOpenAL = {
 #if OPENAL_DEBUG
 			console.error("alDeleteSources() called without a valid context");
 #endif
+			AL.currentCtx.err = 0xA004 /* AL_INVALID_OPERATION */;
 			return;
 		}
 
@@ -1381,6 +1396,7 @@ var LibraryOpenAL = {
 #if OPENAL_DEBUG
 			console.error("alGetEnumValue() called without a valid context");
 #endif
+			AL.currentCtx.err = 0xA004 /* AL_INVALID_OPERATION */;
 			return 0;
 		}
 
@@ -1481,6 +1497,7 @@ var LibraryOpenAL = {
 #if OPENAL_DEBUG
 			console.error("alGetString() called without a valid context");
 #endif
+			AL.currentCtx.err = 0xA004 /* AL_INVALID_OPERATION */;
 			return;
 		}
 		if (AL.stringCache[param]) return AL.stringCache[param];
@@ -1533,6 +1550,7 @@ var LibraryOpenAL = {
 #if OPENAL_DEBUG
 			console.error("alEnable() called without a valid context");
 #endif
+			AL.currentCtx.err = 0xA004 /* AL_INVALID_OPERATION */;
 			return;
 		}
 		switch (param) {
@@ -1550,6 +1568,7 @@ var LibraryOpenAL = {
 #if OPENAL_DEBUG
 			console.error("alDisable() called without a valid context");
 #endif
+			AL.currentCtx.err = 0xA004 /* AL_INVALID_OPERATION */;
 			return;
 		}
 		switch (pname) {
@@ -1567,6 +1586,8 @@ var LibraryOpenAL = {
 #if OPENAL_DEBUG
 			console.error("alIsEnabled() called without a valid context");
 #endif
+			AL.currentCtx.err = 0xA004 /* AL_INVALID_OPERATION */;
+			return 0;
 		}
 		switch (pname) {
 		default:
@@ -1769,6 +1790,7 @@ var LibraryOpenAL = {
 #if OPENAL_DEBUG
 			console.error("alDopplerVelocity() called without a valid context");
 #endif
+			AL.currentCtx.err = 0xA004 /* AL_INVALID_OPERATION */;
 			return;
 		}
 		if (value <= 0) { // Negative or zero values are disallowed
@@ -2083,6 +2105,7 @@ var LibraryOpenAL = {
 #if OPENAL_DEBUG
 			console.error("alBufferData() called without a valid context");
 #endif
+			AL.currentCtx.err = 0xA004 /* AL_INVALID_OPERATION */;
 			return;
 		}
 
@@ -2426,6 +2449,7 @@ var LibraryOpenAL = {
 #if OPENAL_DEBUG
 			console.error("alSourceUnqueueBuffers() called without a valid context");
 #endif
+			AL.currentCtx.err = 0xA004 /* AL_INVALID_OPERATION */;
 			return;
 		}
 		var src = AL.currentCtx.sources[sourceId - 1];
