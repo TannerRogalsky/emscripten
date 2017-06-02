@@ -442,7 +442,7 @@ var LibraryOpenAL = {
 				return 0 /* AL_NONE */;
 			default:
 #if OPENAL_DEBUG
-				console.error(funcname + "() param " + param + " is unknown or not implemented");
+				console.error(funcname + "() param 0x" + param.toString(16) + " is unknown or not implemented");
 #endif
 				AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 				return null;
@@ -462,6 +462,9 @@ var LibraryOpenAL = {
 			case 0xC000 /* AL_DOPPLER_FACTOR */:
 				Runtime.warnOnce("alDopplerFactor() is not yet implemented!");
 				if (value < 0.0) { // Strictly negative values are disallowed
+#if OPENAL_DEBUG
+					console.error(funcname + "() value " + value + " is out of range");
+#endif
 					AL.currentCtx.err = 0xA003 /* AL_INVALID_VALUE */;
 					return;
 				}
@@ -470,6 +473,9 @@ var LibraryOpenAL = {
 			case 0xC003 /* AL_SPEED_OF_SOUND */:
 				Runtime.warnOnce("alSpeedOfSound() is not yet implemented!");
 				if (value <= 0.0) { // Negative or zero values are disallowed
+#if OPENAL_DEBUG
+					console.error(funcname + "() value " + value + " is out of range");
+#endif
 					AL.currentCtx.err = 0xA003 /* AL_INVALID_VALUE */;
 					return;
 				}
@@ -477,6 +483,9 @@ var LibraryOpenAL = {
 				return;
 			case 0xD000 /* AL_DISTANCE_MODEL */:
 				if (value !== 0 /* AL_NONE */) {
+#if OPENAL_DEBUG
+					console.error(funcname + "() value " + value + " is out of range");
+#endif
 #if OPENAL_DEBUG
 					Runtime.warnOnce("Only alDistanceModel(AL_NONE) is currently supported");
 #endif
@@ -486,7 +495,7 @@ var LibraryOpenAL = {
 				return;
 			default:
 #if OPENAL_DEBUG
-				console.error(funcname + "() param " + param + " is unknown or not implemented");
+				console.error(funcname + "() param 0x" + param.toString(16) + " is unknown or not implemented");
 #endif
 				AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 				break;
@@ -513,7 +522,7 @@ var LibraryOpenAL = {
 				return AL.currentCtx.gain.gain.value;
 			default:
 #if OPENAL_DEBUG
-				console.error(funcname + "() param " + param + " is unknown or not implemented");
+				console.error(funcname + "() param 0x" + param.toString(16) + " is unknown or not implemented");
 #endif
 				AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 				return null;
@@ -530,7 +539,7 @@ var LibraryOpenAL = {
 			}
 			if (value === null) {
 #if OPENAL_DEBUG
-				console.error(funcname + "(): param " + param + " has wrong signature");
+				console.error(funcname + "(): param 0x" + param.toString(16) + " has wrong signature");
 #endif
 				AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 				return;
@@ -547,6 +556,13 @@ var LibraryOpenAL = {
 				AL.updateListenerSpace(AL.currentCtx);
 				return;
 			case 0x100A /* AL_GAIN */:
+				if (value < 0.0) {
+#if OPENAL_DEBUG
+					console.error(funcname + "() param 0x" + param.toString(16) + " value " + value + " is out of range");
+#endif
+					AL.currentCtx.err = 0xA003 /* AL_INVALID_VALUE */;
+					return;
+				}
 				AL.currentCtx.gain.gain.value = value;
 				return;
 			case 0x100F /* AL_ORIENTATION */:
@@ -556,7 +572,7 @@ var LibraryOpenAL = {
 				return;
 			default:
 #if OPENAL_DEBUG
-				console.error(funcname + "() param " + param + " is unknown or not implemented");
+				console.error(funcname + "() param 0x" + param.toString(16) + " is unknown or not implemented");
 #endif
 				AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 				return;
@@ -591,7 +607,7 @@ var LibraryOpenAL = {
 				return buf.audioBuf.length * buf.audioBuf.bytesPerSample * buf.audioBuf.numberOfChannels;
 			default:
 #if OPENAL_DEBUG
-				console.error(funcname + "() param " + param + " is unknown or not implemented");
+				console.error(funcname + "() param 0x" + param.toString(16) + " is unknown or not implemented");
 #endif
 				AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 				return null;
@@ -616,14 +632,14 @@ var LibraryOpenAL = {
 			}
 			if (value === null) {
 #if OPENAL_DEBUG
-				console.error(funcname + "(): param " + param + " has wrong signature");
+				console.error(funcname + "(): param 0x" + param.toString(16) + " has wrong signature");
 #endif
 				AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 				return;
 			}
 
 #if OPENAL_DEBUG
-			console.error(funcname + "() param " + param + " is unknown or not implemented");
+			console.error(funcname + "() param 0x" + param.toString(16) + " is unknown or not implemented");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 		},
@@ -702,7 +718,7 @@ var LibraryOpenAL = {
 				return src.type;
 			default:
 #if OPENAL_DEBUG
-				console.error(funcname + "() param " + param + " is unknown or not implemented");
+				console.error(funcname + "() param 0x" + param.toString(16) + " is unknown or not implemented");
 #endif
 				AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 				return null;
@@ -727,7 +743,7 @@ var LibraryOpenAL = {
 			}
 			if (value === null) {
 #if OPENAL_DEBUG
-				console.error(funcname + "(): param " + param + " has wrong signature");
+				console.error(funcname + "(): param 0x" + param.toString(16) + " has wrong signature");
 #endif
 				AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 				return;
@@ -736,17 +752,15 @@ var LibraryOpenAL = {
 			switch (param) {
 			case 0x202 /* AL_SOURCE_RELATIVE */:
 				if (value === 1 /* AL_TRUE */) {
-					if (src.panner) {
-						src.panner = null;
-
-						// Disconnect from the panner.
-						src.gain.disconnect();
-
-						src.gain.connect(AL.currentCtx.gain);
-					}
+					src.relative = true;
 				} else if (value === 0 /* AL_FALSE */) {
+					src.relative = false;
 				} else {
+#if OPENAL_DEBUG
+					console.error(funcname + "() param 0x" + param.toString(16) + " value " + value + " is out of range");
+#endif
 					AL.currentCtx.err = 0xA003 /* AL_INVALID_VALUE */;
+					return;
 				}
 				return;
 			case 0x1001 /* AL_CONE_INNER_ANGLE */:
@@ -864,9 +878,23 @@ var LibraryOpenAL = {
 				src.rolloffFactor = value;
 				return;
 			case 0x1022 /* AL_CONE_OUTER_GAIN */:
+				if (value < 0.0 || value > 1.0) {
+#if OPENAL_DEBUG
+					console.error(funcname + "() param 0x" + param.toString(16) + " value " + value + " is out of range");
+#endif
+					AL.currentCtx.err = 0xA003 /* AL_INVALID_VALUE */;
+					return;
+				}
 				src.coneOuterGain = value;
 				return;
 			case 0x1023 /* AL_MAX_DISTANCE */:
+				if (value < 0.0) {
+#if OPENAL_DEBUG
+					console.error(funcname + "() param 0x" + param.toString(16) + " value " + value + " is out of range");
+#endif
+					AL.currentCtx.err = 0xA003 /* AL_INVALID_VALUE */;
+					return;
+				}
 				src.maxDistance = value;
 				return;
 			// case 0x1024 /* AL_SEC_OFFSET */:
@@ -877,7 +905,7 @@ var LibraryOpenAL = {
 			// return;
 			default:
 #if OPENAL_DEBUG
-				console.error(funcname + "() param " + param + " is unknown or not implemented");
+				console.error(funcname + "() param 0x" + param.toString(16) + " is unknown or not implemented");
 #endif
 				AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 				return;
@@ -1239,7 +1267,7 @@ var LibraryOpenAL = {
 			{{{ makeSetValue("pValues", "0", "1", "i32") }}};
 		default:
 #if OPENAL_DEBUG
-			console.log("alcGetIntegerv() with param " + param + " not implemented yet");
+			console.log("alcGetIntegerv() with param 0x" + param.toString(16) + " not implemented yet");
 #endif
 			AL.alcErr = 0xA003 /* ALC_INVALID_ENUM */;
 			break;
@@ -1685,7 +1713,7 @@ var LibraryOpenAL = {
 		switch (param) {
 		default:
 #if OPENAL_DEBUG
-			console.error("alEnable() with param " + param + " not implemented yet");
+			console.error("alEnable() with param 0x" + param.toString(16) + " not implemented yet");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			break;
@@ -1703,7 +1731,7 @@ var LibraryOpenAL = {
 		switch (pname) {
 		default:
 #if OPENAL_DEBUG
-			console.error("alDisable() with param " + param + " not implemented yet");
+			console.error("alDisable() with param 0x" + param.toString(16) + " not implemented yet");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			break;
@@ -1721,7 +1749,7 @@ var LibraryOpenAL = {
 		switch (pname) {
 		default:
 #if OPENAL_DEBUG
-			console.error("alIsEnabled() with param " + param + " not implemented yet");
+			console.error("alIsEnabled() with param 0x" + param.toString(16) + " not implemented yet");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			break;
@@ -1743,7 +1771,7 @@ var LibraryOpenAL = {
 			return val;
 		default:
 #if OPENAL_DEBUG
-			console.error("alGetDouble(): param " + param + " has wrong signature");
+			console.error("alGetDouble(): param 0x" + param.toString(16) + " has wrong signature");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			return 0.0;
@@ -1765,7 +1793,7 @@ var LibraryOpenAL = {
 			return;
 		default:
 #if OPENAL_DEBUG
-			console.error("alGetDoublev(): param " + param + " has wrong signature");
+			console.error("alGetDoublev(): param 0x" + param.toString(16) + " has wrong signature");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			return;
@@ -1785,7 +1813,7 @@ var LibraryOpenAL = {
 			return val;
 		default:
 #if OPENAL_DEBUG
-			console.error("alGetFloat(): param " + param + " has wrong signature");
+			console.error("alGetFloat(): param 0x" + param.toString(16) + " has wrong signature");
 #endif
 			return 0.0;
 		}
@@ -1806,7 +1834,7 @@ var LibraryOpenAL = {
 			return;
 		default:
 #if OPENAL_DEBUG
-			console.error("alGetFloatv(): param " + param + " has wrong signature");
+			console.error("alGetFloatv(): param 0x" + param.toString(16) + " has wrong signature");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			return;
@@ -1826,7 +1854,7 @@ var LibraryOpenAL = {
 			return val;
 		default:
 #if OPENAL_DEBUG
-			console.error("alGetInteger(): param " + param + " has wrong signature");
+			console.error("alGetInteger(): param 0x" + param.toString(16) + " has wrong signature");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			return 0;
@@ -1848,7 +1876,7 @@ var LibraryOpenAL = {
 			return;
 		default:
 #if OPENAL_DEBUG
-			console.error("alGetIntegerv(): param " + param + " has wrong signature");
+			console.error("alGetIntegerv(): param 0x" + param.toString(16) + " has wrong signature");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			return;
@@ -1868,7 +1896,7 @@ var LibraryOpenAL = {
 			return val !== 0 ? 1 /* AL_TRUE */ : 0 /* AL_FALSE */;
 		default:
 #if OPENAL_DEBUG
-			console.error("alGetBoolean(): param " + param + " has wrong signature");
+			console.error("alGetBoolean(): param 0x" + param.toString(16) + " has wrong signature");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			return 0 /* AL_FALSE */;
@@ -1890,7 +1918,7 @@ var LibraryOpenAL = {
 			return;
 		default:
 #if OPENAL_DEBUG
-			console.error("alGetBooleanv(): param " + param + " has wrong signature");
+			console.error("alGetBooleanv(): param 0x" + param.toString(16) + " has wrong signature");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			return;
@@ -1951,7 +1979,7 @@ var LibraryOpenAL = {
 			return;
 		default:
 #if OPENAL_DEBUG
-			console.error("alGetListenerf(): param " + param + " has wrong signature");
+			console.error("alGetListenerf(): param 0x" + param.toString(16) + " has wrong signature");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			return;
@@ -1980,7 +2008,7 @@ var LibraryOpenAL = {
 			return;
 		default:
 #if OPENAL_DEBUG
-			console.error("alGetListener3f(): param " + param + " has wrong signature");
+			console.error("alGetListener3f(): param 0x" + param.toString(16) + " has wrong signature");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			return;
@@ -2017,7 +2045,7 @@ var LibraryOpenAL = {
 			return;
 		default:
 #if OPENAL_DEBUG
-			console.error("alGetListenerfv(): param " + param + " has wrong signature");
+			console.error("alGetListenerfv(): param 0x" + param.toString(16) + " has wrong signature");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			return;
@@ -2038,7 +2066,7 @@ var LibraryOpenAL = {
 		}
 
 #if OPENAL_DEBUG
-		console.error("alGetListeneri(): param " + param + " has wrong signature");
+		console.error("alGetListeneri(): param 0x" + param.toString(16) + " has wrong signature");
 #endif
 		AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 	},
@@ -2065,7 +2093,7 @@ var LibraryOpenAL = {
 			return;
 		default:
 #if OPENAL_DEBUG
-			console.error("alGetListener3i(): param " + param + " has wrong signature");
+			console.error("alGetListener3i(): param 0x" + param.toString(16) + " has wrong signature");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			return;
@@ -2102,7 +2130,7 @@ var LibraryOpenAL = {
 			return;
 		default:
 #if OPENAL_DEBUG
-			console.error("alGetListeneriv(): param " + param + " has wrong signature");
+			console.error("alGetListeneriv(): param 0x" + param.toString(16) + " has wrong signature");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			return;
@@ -2330,7 +2358,7 @@ var LibraryOpenAL = {
 		}
 
 #if OPENAL_DEBUG
-		console.error("alGetBufferf(): param " + param + " has wrong signature");
+		console.error("alGetBufferf(): param 0x" + param.toString(16) + " has wrong signature");
 #endif
 		AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 	},
@@ -2349,7 +2377,7 @@ var LibraryOpenAL = {
 		}
 
 #if OPENAL_DEBUG
-		console.error("alGetBuffer3f(): param " + param + " has wrong signature");
+		console.error("alGetBuffer3f(): param 0x" + param.toString(16) + " has wrong signature");
 #endif
 		AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 	},
@@ -2368,7 +2396,7 @@ var LibraryOpenAL = {
 		}
 
 #if OPENAL_DEBUG
-		console.error("alGetBufferfv(): param " + param + " has wrong signature");
+		console.error("alGetBufferfv(): param 0x" + param.toString(16) + " has wrong signature");
 #endif
 		AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 	},
@@ -2395,7 +2423,7 @@ var LibraryOpenAL = {
 			return;
 		default:
 #if OPENAL_DEBUG
-			console.error("alGetBufferi(): param " + param + " has wrong signature");
+			console.error("alGetBufferi(): param 0x" + param.toString(16) + " has wrong signature");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			return;
@@ -2416,7 +2444,7 @@ var LibraryOpenAL = {
 		}
 
 #if OPENAL_DEBUG
-		console.error("alGetBuffer3i(): param " + param + " has wrong signature");
+		console.error("alGetBuffer3i(): param 0x" + param.toString(16) + " has wrong signature");
 #endif
 		AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 	},
@@ -2443,7 +2471,7 @@ var LibraryOpenAL = {
 			break;
 		default:
 #if OPENAL_DEBUG
-			console.error("alGetBufferiv(): param " + param + " has wrong signature");
+			console.error("alGetBufferiv(): param 0x" + param.toString(16) + " has wrong signature");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			return;
@@ -2835,7 +2863,7 @@ var LibraryOpenAL = {
 			return;
 		default:
 #if OPENAL_DEBUG
-			console.error("alGetSourcef(): param " + param + " has wrong signature");
+			console.error("alGetSourcef(): param 0x" + param.toString(16) + " has wrong signature");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			return;
@@ -2865,7 +2893,7 @@ var LibraryOpenAL = {
 			return;
 		default:
 #if OPENAL_DEBUG
-			console.error("alGetSource3f(): param " + param + " has wrong signature");
+			console.error("alGetSource3f(): param 0x" + param.toString(16) + " has wrong signature");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			return;
@@ -2910,7 +2938,7 @@ var LibraryOpenAL = {
 			return;
 		default:
 #if OPENAL_DEBUG
-			console.error("alGetSourcefv(): param " + param + " has wrong signature");
+			console.error("alGetSourcefv(): param 0x" + param.toString(16) + " has wrong signature");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			return;
@@ -2950,7 +2978,7 @@ var LibraryOpenAL = {
 			return;
 		default:
 #if OPENAL_DEBUG
-			console.error("alGetSourcei(): param " + param + " has wrong signature");
+			console.error("alGetSourcei(): param 0x" + param.toString(16) + " has wrong signature");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			return;
@@ -2980,7 +3008,7 @@ var LibraryOpenAL = {
 			return;
 		default:
 #if OPENAL_DEBUG
-			console.error("alGetSource3i(): param " + param + " has wrong signature");
+			console.error("alGetSource3i(): param 0x" + param.toString(16) + " has wrong signature");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			return;
@@ -3027,7 +3055,7 @@ var LibraryOpenAL = {
 			return;
 		default:
 #if OPENAL_DEBUG
-			console.error("alGetSourceiv(): param " + param + " has wrong signature");
+			console.error("alGetSourceiv(): param 0x" + param.toString(16) + " has wrong signature");
 #endif
 			AL.currentCtx.err = 0xA002 /* AL_INVALID_ENUM */;
 			return;
