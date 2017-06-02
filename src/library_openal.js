@@ -44,7 +44,7 @@ var LibraryOpenAL = {
 		// -- Mixing Logic
 		// ------------------------------------------------------
 
-		scheduleContextAudio: function(context) {
+		scheduleContextAudio: function(ctx) {
 			// If we are animating using the requestAnimationFrame method, then the main loop does not run when in the background.
 			// To give a perfect glitch-free audio stop when switching from foreground to background, we need to avoid updating
 			// audio altogether when in the background, so detect that case and kill audio buffer streaming if so.
@@ -52,8 +52,8 @@ var LibraryOpenAL = {
 				return;
 			}
 
-			for (var i in context.sources) {
-				AL.scheduleSourceAudio(context.sources[i]);
+			for (var i in ctx.sources) {
+				AL.scheduleSourceAudio(ctx.sources[i]);
 			}
 		},
 
@@ -66,7 +66,7 @@ var LibraryOpenAL = {
 				return;
 			}
 
-			AL.updateSource(src);
+			AL.updateSourceTime(src);
 
 			var startTime = src.bufStartTime;
 			var startOffset = src.bufOffset;
@@ -131,7 +131,7 @@ var LibraryOpenAL = {
 		},
 
 		// Advance the state of a source forward to the current time
-		updateSource: function(src) {
+		updateSourceTime: function(src) {
 			if (src.state !== 0x1012 /* AL_PLAYING */) {
 				return;
 			}
@@ -186,7 +186,7 @@ var LibraryOpenAL = {
 		},
 
 		cancelPendingSourceAudio: function(src) {
-			AL.updateSource(src);
+			AL.updateSourceTime(src);
 
 			for (var i = 1; i < src.audioQueue.length; i++) {
 				var audioSrc = src.audioQueue[i];
@@ -227,7 +227,7 @@ var LibraryOpenAL = {
 			} else if (state === 0x1013 /* AL_PAUSED */) {
 				if (src.state === 0x1012 /* AL_PLAYING */) {
 					// Store off the current offset to restore with on resume.
-					AL.updateSource(src);
+					AL.updateSourceTime(src);
 					AL.stopSourceAudio(src);
 
 					src.state = 0x1013 /* AL_PAUSED */;
@@ -258,6 +258,165 @@ var LibraryOpenAL = {
 #endif
 				}
 			}
+		},
+
+		initSourcePanner: function(src) {
+			if (src.bufQueue[0] && src.bufQueue[0].audioBuf.numberOfChannels == 1) {
+				if (src.panner) {
+					return;
+				}
+				var panner = src.context.audioCtx.createPanner();
+
+				panner.panningModel = "equalpower";
+				panner.distanceModel = "linear";
+				panner.refDistance = src.refDistance;
+				panner.maxDistance = src.maxDistance;
+				panner.rolloffFactor = src.rolloffFactor;
+
+				AL.updateSourceSpace(src);
+
+				panner.connect(src.context.gain);
+				src.gain.disconnect();
+				src.gain.connect(panner);
+				src.panner = panner;
+			} else {
+				if (!src.panner) {
+					return;
+				}
+
+				src.panner.disconnect();
+				src.gain.disconnect();
+				src.gain.connect(src.context.gain);
+				src.panner = null;
+			}
+		},
+
+		updateListenerSpace: function(ctx) {
+			var listener = ctx.audioCtx.listener;
+			if (listener.positionX) {
+				listener.positionX.value = listener._position[0];
+				listener.positionY.value = listener._position[1];
+				listener.positionZ.value = listener._position[2];
+			} else {
+#if OPENAL_DEBUG
+				Runtime.warnOnce("Listener position attributes are not present, falling back to setPosition()");
+#endif
+				listener.setPosition(listener._position[0], listener._position[1], listener._position[2]);
+			}
+			if (listener.forwardX) {
+				listener.forwardX.value = listener._direction[0];
+				listener.forwardY.value = listener._direction[1];
+				listener.forwardZ.value = listener._direction[2];
+				listener.upX.value = listener._up[0];
+				listener.upY.value = listener._up[1];
+				listener.upZ.value = listener._up[2];
+			} else {
+#if OPENAL_DEBUG
+				Runtime.warnOnce("Listener orientation attributes are not present, falling back to setOrientation()");
+#endif
+				listener.setOrientation(
+					listener._direction[0], listener._direction[1], listener._direction[2],
+					listener._up[0], listener._up[1], listener._up[2]);
+			}
+
+			// Update sources that are relative to the listener
+			for (var i in ctx.sources) {
+				if (ctx.sources[i].relative) {
+					AL.updateSourceSpace(ctx.sources[i]);
+				}
+			}
+		},
+
+		updateSourceSpace: function(src) {
+			if (!src.panner) {
+				return;
+			}
+			var panner = src.panner;
+
+			var posX = src.position[0];
+			var posY = src.position[1];
+			var posZ = src.position[2];
+			var dirX = src.direction[0];
+			var dirY = src.direction[1];
+			var dirZ = src.direction[2];
+
+			// WebAudio expects world space coordinates, so if the source is listener-relative
+			// we must transform the coordinates from listener space into world space.
+			if (src.relative) {
+				var listener = src.context.audioCtx.listener;
+				// Negate the listener direction since forward is -Z.
+				var lBackX = -listener._direction[0];
+				var lBackY = -listener._direction[1];
+				var lBackZ = -listener._direction[2];
+				var lUpX = listener._up[0];
+				var lUpY = listener._up[1];
+				var lUpZ = listener._up[2];
+
+				// Normalize the Back vector
+				var invMag = 1.0 / Math.sqrt(lBackX * lBackX + lBackY * lBackY + lBackZ * lBackZ);
+				lBackX *= invMag;
+				lBackY *= invMag;
+				lBackZ *= invMag;
+
+				// ...and the Up vector
+				var invMag = 1.0 / Math.sqrt(lUpX * lUpX + lUpY * lUpY + lUpZ * lUpZ);
+				lUpX *= invMag;
+				lUpY *= invMag;
+				lUpZ *= invMag;
+
+				// Calculate the Right vector as the cross product of the Up and Back vectors
+				var lRightX = (lUpY * lBackZ - lUpZ * lBackY);
+				var lRightY = (lUpZ * lBackX - lUpX * lBackZ);
+				var lRightZ = (lUpX * lBackY - lUpY * lBackX);
+
+				var oldX = dirX;
+				var oldY = dirY;
+				var oldZ = dirZ;
+
+				// Use our 3 vectors to apply a change-of-basis matrix to the source direction
+				dirX = oldX * lRightX + oldY * lUpX + oldZ * lBackX;
+				dirY = oldX * lRightY + oldY * lUpY + oldZ * lBackY;
+				dirZ = oldX * lRightZ + oldY * lUpZ + oldZ * lBackZ;
+
+				var oldX = posX;
+				var oldY = posY;
+				var oldZ = posZ;
+
+				// ...and to the source position
+				posX = oldX * lRightX + oldY * lUpX + oldZ * lBackX;
+				posY = oldX * lRightY + oldY * lUpY + oldZ * lBackY;
+				posZ = oldX * lRightZ + oldY * lUpZ + oldZ * lBackZ;
+
+				// The change-of-basis corrects the orientation, but the origin is still the listener.
+				// Translate the source position by the listener position to finish.
+				posX += listener._position[0];
+				posY += listener._position[1];
+				posZ += listener._position[2];
+			}
+
+			if (panner.positionX) {
+				panner.positionX.value = posX;
+				panner.positionY.value = posY;
+				panner.positionZ.value = posZ;
+			} else {
+#if OPENAL_DEBUG
+				Runtime.warnOnce("Panner position attributes are not present, falling back to setPosition()");
+#endif
+				panner.setPosition(src.position[0], src.position[1], src.position[2]);
+			}
+			if (panner.orientationX) {
+				panner.orientationX.value = dirX;
+				panner.orientationY.value = dirY;
+				panner.orientationZ.value = dirZ;
+			} else {
+#if OPENAL_DEBUG
+				Runtime.warnOnce("Panner orientation attributes are not present, falling back to setOrientation()");
+#endif
+				panner.setOrientation(val[0], val[1], val[2]);
+			}
+
+			// TODO: If support for doppler effect is reintroduced, compute the doppler
+			// speed pitch factor and apply it here.
 		},
 
 		// ------------------------------------------------------
@@ -348,7 +507,7 @@ var LibraryOpenAL = {
 			case 0x1006 /* AL_VELOCITY */:
 				return AL.currentCtx.audioCtx.listener._velocity;
 			case 0x100F /* AL_ORIENTATION */:
-				return AL.currentCtx.audioCtx.listener._orientation;
+				return AL.currentCtx.audioCtx.listener._direction.concat(AL.currentCtx.audioCtx.listener._up);
 			case 0x100A /* AL_GAIN */:
 				return AL.currentCtx.gain.gain.value;
 			default:
@@ -380,40 +539,19 @@ var LibraryOpenAL = {
 			switch (param) {
 			case 0x1004 /* AL_POSITION */:
 				listener._position = value;
-				if (listener.positionX) {
-					listener.positionX.value = value[0];
-					listener.positionY.value = value[1];
-					listener.positionZ.value = value[2];
-				} else {
-#if OPENAL_DEBUG
-					Runtime.warnOnce("Listener position attributes are not present, falling back to setPosition()");
-#endif
-					listener.setPosition(value[0], value[1], value[2]);
-				}
+				AL.updateListenerSpace(AL.currentCtx);
 				return;
 			case 0x1006 /* AL_VELOCITY */:
 				listener._velocity = value;
+				AL.updateListenerSpace(AL.currentCtx);
 				return;
 			case 0x100A /* AL_GAIN */:
 				AL.currentCtx.gain.gain.value = value;
 				return;
 			case 0x100F /* AL_ORIENTATION */:
-				listener._orientation = value;
-				if (listener.forwardX) {
-					listener.forwardX.value = value[0];
-					listener.forwardY.value = value[1];
-					listener.forwardZ.value = value[2];
-					listener.upX.value = value[3];
-					listener.upY.value = value[4];
-					listener.upZ.value = value[5];
-				} else {
-#if OPENAL_DEBUG
-					Runtime.warnOnce("Listener orientation attributes are not present, falling back to setOrientation()");
-#endif
-					listener.setOrientation(
-						value[0], value[1], value[2],
-						value[3], value[4], value[5]);
-				}
+				listener._direction = value.slice(0, 3);
+				listener._up = value.slice(3, 6);
+				AL.updateListenerSpace(AL.currentCtx);
 				return;
 			default:
 #if OPENAL_DEBUG
@@ -508,7 +646,7 @@ var LibraryOpenAL = {
 
 			switch (param) {
 			case 0x202 /* AL_SOURCE_RELATIVE */:
-				return src.panner ? 1 : 0;
+				return src.relative;
 			case 0x1001 /* AL_CONE_INNER_ANGLE */:
 				return src.coneInnerAngle;
 			case 0x1002 /* AL_CONE_OUTER_ANGLE */:
@@ -606,33 +744,6 @@ var LibraryOpenAL = {
 						src.gain.connect(AL.currentCtx.gain);
 					}
 				} else if (value === 0 /* AL_FALSE */) {
-					if (!src.panner) {
-						var panner = src.panner = AL.currentCtx.audioCtx.createPanner();
-						panner.panningModel = "equalpower";
-						panner.distanceModel = "linear";
-						panner.refDistance = src.refDistance;
-						panner.maxDistance = src.maxDistance;
-						panner.rolloffFactor = src.rolloffFactor;
-						src.position = src.position;
-						if (panner.positionX) {
-							panner.positionX.value = src.position[0];
-							panner.positionY.value = src.position[1];
-							panner.positionZ.value = src.position[2];
-						} else {
-#if OPENAL_DEBUG
-							Runtime.warnOnce("Panner position attributes are not present, falling back to setPosition()");
-#endif
-							panner.setPosition(src.position[0], src.position[1], src.position[2]);
-						}
-						// TODO: If support for doppler effect is reintroduced, compute the doppler
-						// speed pitch factor and apply it here.
-						panner.connect(AL.currentCtx.gain);
-
-						// Disconnect from the default source.
-						src.gain.disconnect();
-
-						src.gain.connect(panner);
-					}
 				} else {
 					AL.currentCtx.err = 0xA003 /* AL_INVALID_VALUE */;
 				}
@@ -674,12 +785,15 @@ var LibraryOpenAL = {
 				return;
 			case 0x1004 /* AL_POSITION */:
 				src.position = values;
+				AL.updateSourceSpace(src);
 				return;
 			case 0x1005 /* AL_DIRECTION */:
 				src.direction = values;
+				AL.updateSourceSpace(src);
 				return;
 			case 0x1006 /* AL_VELOCITY */:
 				src.velocity = values;
+				AL.updateSourceSpace(src);
 				return;
 			case 0x1007 /* AL_LOOPING */:
 				src.loop = (value === 1 /* AL_TRUE */);
@@ -722,6 +836,7 @@ var LibraryOpenAL = {
 					src.type = 0x1028 /* AL_STATIC */;
 				}
 
+				AL.initSourcePanner(src);
 				AL.scheduleSourceAudio(src);
 				return;
 			case 0x100A /* AL_GAIN */:
@@ -809,14 +924,17 @@ var LibraryOpenAL = {
 
 		if (ac) {
 			// Old Web Audio API (e.g. Safari 6.0.5) had an inconsistently named createGainNode function.
-			if (typeof(ac.createGain) === "undefined") ac.createGain = ac.createGainNode;
+			if (typeof(ac.createGain) === "undefined") {
+				ac.createGain = ac.createGainNode;
+			}
 
 			var gain = ac.createGain();
 			gain.connect(ac.destination);
 			// Extend the Web Audio API AudioListener object with a few tracking values of our own.
 			ac.listener._position = [0.0, 0.0, 0.0];
 			ac.listener._velocity = [0.0, 0.0, 0.0];
-			ac.listener._orientation = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+			ac.listener._direction = [0.0, 0.0, 0.0];
+			ac.listener._up = [0.0, 0.0, 0.0];
 			var context = {
 				id: AL.contexts.length + 1,
 				audioCtx: ac,
@@ -1216,9 +1334,16 @@ var LibraryOpenAL = {
 				audioQueue: [],
 				loop: false,
 				playbackRate: 1.0,
+				_relative: false,
 				_position: [0.0, 0.0, 0.0],
 				_velocity: [0.0, 0.0, 0.0],
 				_direction: [0.0, 0.0, 0.0],
+				get relative() {
+					return this._relative;
+				},
+				set relative(val) {
+					this._relative = val;
+				},
 				get refDistance() {
 					return this._refDistance || 1;
 				},
@@ -1285,16 +1410,6 @@ var LibraryOpenAL = {
 					this._direction[1] = val[1];
 					this._direction[2] = val[2];
 					if (this.panner) {
-						if (this.panner.orientationX) {
-							this.panner.orientationX.value = val[0];
-							this.panner.orientationY.value = val[1];
-							this.panner.orientationZ.value = val[2];
-						} else {
-#if OPENAL_DEBUG
-							Runtime.warnOnce("Panner orientation attributes are not present, falling back to setOrientation()");
-#endif
-							this.panner.setOrientation(val[0], val[1], val[2]);
-						}
 					}
 				},
 				get coneOuterGain() {
@@ -2441,6 +2556,8 @@ var LibraryOpenAL = {
 		if (src.loop) {
 			AL.cancelPendingSourceAudio(src);
 		}
+
+		AL.initSourcePanner(src);
 		AL.scheduleSourceAudio(src);
 	},
 
@@ -2474,6 +2591,7 @@ var LibraryOpenAL = {
 			src.bufsProcessed--;
 		}
 
+		AL.initSourcePanner(src);
 		AL.scheduleSourceAudio(src);
 	},
 
