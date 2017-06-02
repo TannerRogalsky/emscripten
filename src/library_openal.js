@@ -480,6 +480,7 @@ var LibraryOpenAL = {
 #if OPENAL_DEBUG
 					Runtime.warnOnce("Only alDistanceModel(AL_NONE) is currently supported");
 #endif
+					AL.currentCtx.err = 0xA003 /* AL_INVALID_VALUE */;
 				}
 				// TODO actual impl here
 				return;
@@ -669,10 +670,10 @@ var LibraryOpenAL = {
 				}
 			case 0x100A /* AL_GAIN */:
 				return src.gain.gain.value;
-			// case 0x100D /* AL_MIN_GAIN */:
-			// return;
-			// case 0x100E /* AL_MAX_GAIN */:
-			// return;
+			 case 0x100D /* AL_MIN_GAIN */:
+				return src.minGain;
+			case 0x100E /* AL_MAX_GAIN */:
+				return src.maxGain;
 			case 0x1010 /* AL_SOURCE_STATE */:
 				return src.state;
 			case 0x1015 /* AL_BUFFERS_QUEUED */:
@@ -844,10 +845,18 @@ var LibraryOpenAL = {
 					src.gain.gain.value = value;
 				}
 				return;
-			// case 0x100D /* AL_MIN_GAIN */:
-			// return;
-			// case 0x100E /* AL_MAX_GAIN */:
-			// return;
+			case 0x100D /* AL_MIN_GAIN */:
+#if OPENAL_DEBUG
+				Runtime.warnOnce("AL_MIN_GAIN is not currently supported");
+#endif
+				src.minGain = value;
+				return;
+			case 0x100E /* AL_MAX_GAIN */:
+#if OPENAL_DEBUG
+				Runtime.warnOnce("AL_MAX_GAIN is not currently supported");
+#endif
+				src.maxGain = value;
+				return;
 			case 0x1020 /* AL_REFERENCE_DISTANCE */:
 				src.refDistance = value;
 				return;
@@ -1334,18 +1343,26 @@ var LibraryOpenAL = {
 				audioQueue: [],
 				loop: false,
 				playbackRate: 1.0,
+				gain: gain,
+				minGain: 0.0,
+				maxGain: 1.0,
+				panner: null,
+				bufsProcessed: 0,
+				bufStartTime: Number.NEGATIVE_INFINITY,
+				bufOffset: 0.0,
+
 				_relative: false,
-				_position: [0.0, 0.0, 0.0],
-				_velocity: [0.0, 0.0, 0.0],
-				_direction: [0.0, 0.0, 0.0],
 				get relative() {
 					return this._relative;
 				},
 				set relative(val) {
 					this._relative = val;
+					AL.updateSourceSpace(this);
 				},
+
+				_refDistance: 1.0,
 				get refDistance() {
-					return this._refDistance || 1;
+					return this._refDistance;
 				},
 				set refDistance(val) {
 					this._refDistance = val;
@@ -1353,8 +1370,10 @@ var LibraryOpenAL = {
 						this.panner.refDistance = val;
 					}
 				},
+
+				_maxDistance: 3.40282347E+38 /* FLT_MAX */;
 				get maxDistance() {
-					return this._maxDistance || 10000.0;
+					return this._maxDistance;
 				},
 				set maxDistance(val) {
 					this._maxDistance = val;
@@ -1362,8 +1381,10 @@ var LibraryOpenAL = {
 						this.panner.maxDistance = val;
 					}
 				},
+
+				_rollOffFactor: 1.0,
 				get rolloffFactor() {
-					return this._rolloffFactor || 1.0;
+					return this._rolloffFactor;
 				},
 				set rolloffFactor(val) {
 					this._rolloffFactor = val;
@@ -1371,6 +1392,8 @@ var LibraryOpenAL = {
 						this.panner.rolloffFactor = val;
 					}
 				},
+
+				_position: [0.0, 0.0, 0.0],
 				get position() {
 					return this._position;
 				},
@@ -1378,19 +1401,10 @@ var LibraryOpenAL = {
 					this._position[0] = val[0];
 					this._position[1] = val[1];
 					this._position[2] = val[2];
-					if (this.panner) {
-						if (this.panner.positionX) {
-							this.panner.positionX.value = val[0];
-							this.panner.positionY.value = val[1];
-							this.panner.positionZ.value = val[2];
-						} else {
-#if OPENAL_DEBUG
-							Runtime.warnOnce("Panner position attributes are not present, falling back to setPosition()");
-#endif
-							this.panner.setPosition(val[0], val[1], val[2]);
-						}
-					}
+					AL.updateSourceSpace(this);
 				},
+
+				_velocity: [0.0, 0.0, 0.0],
 				get velocity() {
 					return this._velocity;
 				},
@@ -1398,10 +1412,10 @@ var LibraryOpenAL = {
 					this._velocity[0] = val[0];
 					this._velocity[1] = val[1];
 					this._velocity[2] = val[2];
-					// TODO: The velocity values are not currently used to implement a doppler effect.
-					// If support for doppler effect is reintroduced, compute the doppler
-					// speed pitch factor and apply it here.
+					AL.updateSourceSpace(this);
 				},
+
+				_direction: [0.0, 0.0, 0.0],
 				get direction() {
 					return this._direction;
 				},
@@ -1409,11 +1423,12 @@ var LibraryOpenAL = {
 					this._direction[0] = val[0];
 					this._direction[1] = val[1];
 					this._direction[2] = val[2];
-					if (this.panner) {
-					}
+					AL.updateSourceSpace(this);
 				},
+
+				_coneOuterGain: 0.0,
 				get coneOuterGain() {
-					return this._coneOuterGain || 0.0;
+					return this._coneOuterGain;
 				},
 				set coneOuterGain(val) {
 					this._coneOuterGain = val;
@@ -1421,8 +1436,10 @@ var LibraryOpenAL = {
 						this.panner.coneOuterGain = val;
 					}
 				},
+
+				_coneInnerAngle: 360.0,
 				get coneInnerAngle() {
-					return this._coneInnerAngle || 360.0;
+					return this._coneInnerAngle;
 				},
 				set coneInnerAngle(val) {
 					this._coneInnerAngle = val;
@@ -1430,20 +1447,17 @@ var LibraryOpenAL = {
 						this.panner.coneInnerAngle = val;
 					}
 				},
+
+				_coneOuterAngle: 360.0,
 				get coneOuterAngle() {
-					return this._coneOuterAngle || 360.0;
+					return this._coneOuterAngle;
 				},
 				set coneOuterAngle(val) {
 					this._coneOuterAngle = val;
 					if (this.panner) {
 						this.panner.coneOuterAngle = val;
 					}
-				},
-				gain: gain,
-				panner: null,
-				bufsProcessed: 0,
-				bufStartTime: Number.NEGATIVE_INFINITY,
-				bufOffset: 0.0
+				}
 			};
 			AL.currentCtx.sources.push(src);
 			{{{ makeSetValue("pSourceIds", "i*4", "src.id", "i32") }}};
