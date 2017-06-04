@@ -712,12 +712,12 @@ var LibraryOpenAL = {
 				return src.coneOuterGain;
 			case 0x1023 /* AL_MAX_DISTANCE */:
 				return src.maxDistance;
-			// case 0x1024 /* AL_SEC_OFFSET */:
-			// return;
-			// case 0x1025 /* AL_SAMPLE_OFFSET */:
-			// return;
-			// case 0x1026 /* AL_BYTE_OFFSET */:
-			// return;
+//			case 0x1024 /* AL_SEC_OFFSET */:
+//				return;
+//			case 0x1025 /* AL_SAMPLE_OFFSET */:
+//				return;
+//			case 0x1026 /* AL_BYTE_OFFSET */:
+//				return;
 			case 0x1027 /* AL_SOURCE_TYPE */:
 				return src.type;
 			default:
@@ -774,7 +774,10 @@ var LibraryOpenAL = {
 				src.coneOuterAngle = value;
 				return;
 			case 0x1003 /* AL_PITCH */:
-				if (value <= 0) {
+				if (value <= 0.0) {
+#if OPENAL_DEBUG
+					console.error(funcname + "() param 0x" + param.toString(16) + " value " + value + " is out of range");
+#endif
 					AL.currentCtx.err = 0xA003 /* AL_INVALID_VALUE */;
 					return;
 				}
@@ -815,7 +818,17 @@ var LibraryOpenAL = {
 				AL.updateSourceSpace(src);
 				return;
 			case 0x1007 /* AL_LOOPING */:
-				src.loop = (value === 1 /* AL_TRUE */);
+				if (value === 1 /* AL_TRUE */) {
+					src.loop = true;
+				} else if (value === 0 /* AL_FALSE */) {
+					src.loop = false;
+				} else {
+#if OPENAL_DEBUG
+					console.error(funcname + "() param 0x" + param.toString(16) + " value " + value + " is out of range");
+#endif
+					AL.currentCtx.err = 0xA003 /* AL_INVALID_VALUE */;
+					return;
+				}
 				return;
 			case 0x1009 /* AL_BUFFER */:
 				if (src.state === 0x1012 /* AL_PLAYING */ || src.state === 0x1013 /* AL_PAUSED */) {
@@ -859,26 +872,59 @@ var LibraryOpenAL = {
 				AL.scheduleSourceAudio(src);
 				return;
 			case 0x100A /* AL_GAIN */:
-				if (src.gain.gain.value != value) {
-					src.gain.gain.value = value;
+				if (value < 0.0) {
+#if OPENAL_DEBUG
+					console.error(funcname + "() param 0x" + param.toString(16) + " value " + value + " is out of range");
+#endif
+					AL.currentCtx.err = 0xA003 /* AL_INVALID_VALUE */;
+					return;
 				}
+				src.gain.gain.value = value;
 				return;
 			case 0x100D /* AL_MIN_GAIN */:
+				if (value < 0.0 || value > Math.min(src.maxGain, 1.0)) {
+#if OPENAL_DEBUG
+					console.error(funcname + "() param 0x" + param.toString(16) + " value " + value + " is out of range");
+#endif
+					AL.currentCtx.err = 0xA003 /* AL_INVALID_VALUE */;
+					return;
+				}
 #if OPENAL_DEBUG
 				Runtime.warnOnce("AL_MIN_GAIN is not currently supported");
 #endif
 				src.minGain = value;
 				return;
 			case 0x100E /* AL_MAX_GAIN */:
+				if (value < Math.max(0.0, src.minGain) || value > 1.0) {
+#if OPENAL_DEBUG
+					console.error(funcname + "() param 0x" + param.toString(16) + " value " + value + " is out of range");
+#endif
+					AL.currentCtx.err = 0xA003 /* AL_INVALID_VALUE */;
+					return;
+				}
 #if OPENAL_DEBUG
 				Runtime.warnOnce("AL_MAX_GAIN is not currently supported");
 #endif
 				src.maxGain = value;
 				return;
 			case 0x1020 /* AL_REFERENCE_DISTANCE */:
+				if (value < 0.0) {
+#if OPENAL_DEBUG
+					console.error(funcname + "() param 0x" + param.toString(16) + " value " + value + " is out of range");
+#endif
+					AL.currentCtx.err = 0xA003 /* AL_INVALID_VALUE */;
+					return;
+				}
 				src.refDistance = value;
 				return;
 			case 0x1021 /* AL_ROLLOFF_FACTOR */:
+				if (value < 0.0) {
+#if OPENAL_DEBUG
+					console.error(funcname + "() param 0x" + param.toString(16) + " value " + value + " is out of range");
+#endif
+					AL.currentCtx.err = 0xA003 /* AL_INVALID_VALUE */;
+					return;
+				}
 				src.rolloffFactor = value;
 				return;
 			case 0x1022 /* AL_CONE_OUTER_GAIN */:
@@ -901,12 +947,12 @@ var LibraryOpenAL = {
 				}
 				src.maxDistance = value;
 				return;
-			// case 0x1024 /* AL_SEC_OFFSET */:
-			// return;
-			// case 0x1025 /* AL_SAMPLE_OFFSET */:
-			// return;
-			// case 0x1026 /* AL_BYTE_OFFSET */:
-			// return;
+//			case 0x1024 /* AL_SEC_OFFSET */:
+//				return;
+//			case 0x1025 /* AL_SAMPLE_OFFSET */:
+//				return;
+//			case 0x1026 /* AL_BYTE_OFFSET */:
+//				return;
 			default:
 #if OPENAL_DEBUG
 				console.error(funcname + "() param 0x" + param.toString(16) + " is unknown or not implemented");
