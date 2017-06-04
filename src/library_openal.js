@@ -261,7 +261,11 @@ var LibraryOpenAL = {
 		},
 
 		initSourcePanner: function(src) {
-			if (src.bufQueue[0] && src.bufQueue[0].audioBuf.numberOfChannels == 1) {
+			if (src.type === 0x1030 /* AL_UNDETERMINED */) {
+				return;
+			}
+
+			if (src.bufQueue[0].audioBuf.numberOfChannels == 1) {
 				if (src.panner) {
 					return;
 				}
