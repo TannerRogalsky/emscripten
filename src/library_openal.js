@@ -734,7 +734,7 @@ var LibraryOpenAL = {
 				AL.currentCtx.err = 0xA004 /* AL_INVALID_OPERATION */;
 				return null;
 			}
-			var src = AL.currentCtx.src[sourceId - 1];
+			var src = AL.currentCtx.sources[sourceId - 1];
 			if (!src) {
 #if OPENAL_DEBUG
 				console.error(funcname + "() called with an invalid source");
@@ -892,15 +892,15 @@ var LibraryOpenAL = {
 				}
 				return;
 			case 0x1004 /* AL_POSITION */:
-				src.position = values;
+				src.position = value;
 				AL.updateSourceSpace(src);
 				return;
 			case 0x1005 /* AL_DIRECTION */:
-				src.direction = values;
+				src.direction = value;
 				AL.updateSourceSpace(src);
 				return;
 			case 0x1006 /* AL_VELOCITY */:
-				src.velocity = values;
+				src.velocity = value;
 				AL.updateSourceSpace(src);
 				return;
 			case 0x1007 /* AL_LOOPING */:
@@ -3290,9 +3290,9 @@ var LibraryOpenAL = {
 		case 0x1004 /* AL_POSITION */:
 		case 0x1005 /* AL_DIRECTION */:
 		case 0x1006 /* AL_VELOCITY */:
-			var v0 = {{{ makeGetValue("pValues", "0", "float") }}};
-			var v1 = {{{ makeGetValue("pValues", "4", "float") }}};
-			var v2 = {{{ makeGetValue("pValues", "8", "float") }}};
+			var value0 = {{{ makeGetValue("pValues", "0", "float") }}};
+			var value1 = {{{ makeGetValue("pValues", "4", "float") }}};
+			var value2 = {{{ makeGetValue("pValues", "8", "float") }}};
 			AL.sourceHelper("alSourcefv", sourceId, param, [value0, value1, value2]);
 			return;
 		default:
