@@ -269,20 +269,14 @@ var LibraryOpenAL = {
 				if (src.panner) {
 					return;
 				}
-				var panner = src.context.audioCtx.createPanner();
+				src.panner = src.context.audioCtx.createPanner();
 
-				panner.panningModel = "equalpower";
-				panner.distanceModel = "linear";
-				panner.refDistance = src.refDistance;
-				panner.maxDistance = src.maxDistance;
-				panner.rolloffFactor = src.rolloffFactor;
-
+				AL.updateSourceGlobal(src);
 				AL.updateSourceSpace(src);
 
-				panner.connect(src.context.gain);
+				src.panner.connect(src.context.gain);
 				src.gain.disconnect();
-				src.gain.connect(panner);
-				src.panner = panner;
+				src.gain.connect(src.panner);
 			} else {
 				if (!src.panner) {
 					return;
@@ -292,6 +286,44 @@ var LibraryOpenAL = {
 				src.gain.disconnect();
 				src.gain.connect(src.context.gain);
 				src.panner = null;
+			}
+		},
+
+		updateContextGlobal: function(ctx) {
+			for (i in ctx.sources) {
+				AL.updateSourceGlobal(ctx.sources[i]);
+			}
+		},
+
+		updateSourceGlobal: function(src) {
+			var panner = src.panner;
+			if (!panner) {
+				return;
+			}
+
+			panner.refDistance = src.refDistance;
+			panner.maxDistance = src.maxDistance;
+			panner.rolloffFactor = src.rolloffFactor;
+
+			panner.panningModel = "equalpower";
+
+			switch (src.context.distanceModel) {
+			case 0 /* AL_NONE */:
+				panner.distanceModel = "inverse";
+				panner.refDistance = 3.40282e38 /* FLT_MAX */;
+				break;
+			case 0xd001 /* AL_INVERSE_DISTANCE */:
+			case 0xd002 /* AL_INVERSE_DISTANCE_CLAMPED */:
+				panner.distanceModel = "inverse";
+				break;
+			case 0xd003 /* AL_LINEAR_DISTANCE */:
+			case 0xd004 /* AL_LINEAR_DISTANCE_CLAMPED */:
+				panner.distanceModel = "linear";
+				break;
+			case 0xd005 /* AL_EXPONENT_DISTANCE */:
+			case 0xd006 /* AL_EXPONENT_DISTANCE_CLAMPED */:
+				panner.distanceModel = "exponential";
+				break;
 			}
 		},
 
@@ -465,7 +497,7 @@ var LibraryOpenAL = {
 		// -- Accessor Helpers
 		// ------------------------------------------------------
 
-		getDoubleHelper: function(funcname, param) {
+		getGlobalHelper: function(funcname, param) {
 			if (!AL.currentCtx) {
 #if OPENAL_DEBUG
 				console.error(funcname + "() called without a valid context");
@@ -491,7 +523,7 @@ var LibraryOpenAL = {
 			}
 		},
 
-		doubleHelper: function(funcname, param, value) {
+		globalHelper: function(funcname, param, value) {
 			if (!AL.currentCtx) {
 #if OPENAL_DEBUG
 				console.error(funcname + "() called without a valid context");
@@ -524,16 +556,24 @@ var LibraryOpenAL = {
 				// TODO actual impl here
 				return;
 			case 0xD000 /* AL_DISTANCE_MODEL */:
-				if (value !== 0 /* AL_NONE */) {
+				switch (value) {
+				case 0 /* AL_NONE */:
+				case 0xd001 /* AL_INVERSE_DISTANCE */:
+				case 0xd002 /* AL_INVERSE_DISTANCE_CLAMPED */:
+				case 0xd003 /* AL_LINEAR_DISTANCE */:
+				case 0xd004 /* AL_LINEAR_DISTANCE_CLAMPED */:
+				case 0xd005 /* AL_EXPONENT_DISTANCE */:
+				case 0xd006 /* AL_EXPONENT_DISTANCE_CLAMPED */:
+					AL.currentCtx.distanceModel = value;
+					AL.updateContextGlobal(AL.currentCtx);
+					return;
+				default:
 #if OPENAL_DEBUG
 					console.error(funcname + "() value " + value + " is out of range");
 #endif
-#if OPENAL_DEBUG
-					Runtime.warnOnce("Only alDistanceModel(AL_NONE) is currently supported");
-#endif
 					AL.currentCtx.err = 0xA003 /* AL_INVALID_VALUE */;
+					return;
 				}
-				// TODO actual impl here
 				return;
 			default:
 #if OPENAL_DEBUG
@@ -1116,7 +1156,9 @@ var LibraryOpenAL = {
 				},
 				sources: [],
 				interval: setInterval(function() { AL.scheduleContextAudio(context); }, AL.QUEUE_INTERVAL),
-				gain: gain
+				gain: gain,
+
+				distanceModel: 0xd002 /* AL_IVNERSE_DISTANCE_CLAMPED */
 			};
 			AL.contexts.push(context);
 			return context.id;
@@ -1528,7 +1570,7 @@ var LibraryOpenAL = {
 					}
 				},
 
-				_maxDistance: 3.40282347e38 /* FLT_MAX */,
+				_maxDistance: 3.40282e38 /* FLT_MAX */,
 				get maxDistance() {
 					return this._maxDistance;
 				},
@@ -1888,7 +1930,7 @@ var LibraryOpenAL = {
 	},
 
 	alGetDouble: function(param) {
-		var val = AL.getDoubleHelper("alGetDouble", param);
+		var val = AL.getGlobalHelper("alGetDouble", param);
 		if (val === null) {
 			return 0.0;
 		}
@@ -1908,7 +1950,7 @@ var LibraryOpenAL = {
 	},
 
 	alGetDoublev: function(param, pValues) {
-		var val = AL.getDoubleHelper("alGetDoublev", param);
+		var val = AL.getGlobalHelper("alGetDoublev", param);
 		// Silently ignore null destinations, as per the spec for global state functions
 		if (val === null || !pValues) {
 			return;
@@ -1930,7 +1972,7 @@ var LibraryOpenAL = {
 	},
 
 	alGetFloat: function(param) {
-		var val = AL.getDoubleHelper("alGetFloat", param);
+		var val = AL.getGlobalHelper("alGetFloat", param);
 		if (val === null) {
 			return 0.0;
 		}
@@ -1949,7 +1991,7 @@ var LibraryOpenAL = {
 	},
 
 	alGetFloatv: function(param, pValues) {
-		var val = AL.getDoubleHelper("alGetFloatv", param);
+		var val = AL.getGlobalHelper("alGetFloatv", param);
 		// Silently ignore null destinations, as per the spec for global state functions
 		if (val === null || !pValues) {
 			return;
@@ -1971,7 +2013,7 @@ var LibraryOpenAL = {
 	},
 
 	alGetInteger: function(param) {
-		var val = AL.getDoubleHelper("alGetInteger", param);
+		var val = AL.getGlobalHelper("alGetInteger", param);
 		if (val === null) {
 			return 0;
 		}
@@ -1991,7 +2033,7 @@ var LibraryOpenAL = {
 	},
 
 	alGetIntegerv: function(param, pValues) {
-		var val = AL.getDoubleHelper("alGetIntegerv", param);
+		var val = AL.getGlobalHelper("alGetIntegerv", param);
 		// Silently ignore null destinations, as per the spec for global state functions
 		if (val === null || !pValues) {
 			return;
@@ -2013,7 +2055,7 @@ var LibraryOpenAL = {
 	},
 
 	alGetBoolean: function(param) {
-		var val = AL.getDoubleHelper("alGetBoolean", param);
+		var val = AL.getGlobalHelper("alGetBoolean", param);
 		if (val === null) {
 			return 0 /* AL_FALSE */;
 		}
@@ -2033,7 +2075,7 @@ var LibraryOpenAL = {
 	},
 
 	alGetBooleanv: function(param, pValues) {
-		var val = AL.getDoubleHelper("alGetBooleanv", param);
+		var val = AL.getGlobalHelper("alGetBooleanv", param);
 		// Silently ignore null destinations, as per the spec for global state functions
 		if (val === null || !pValues) {
 			return;
@@ -2055,15 +2097,15 @@ var LibraryOpenAL = {
 	},
 
 	alDistanceModel: function(model) {
-		AL.doubleHelper("alDistanceModel", 0xD000 /* AL_DISTANCE_MODEL */, model);
+		AL.globalHelper("alDistanceModel", 0xD000 /* AL_DISTANCE_MODEL */, model);
 	},
 
 	alSpeedOfSound: function(value) {
-		AL.doubleHelper("alSpeedOfSound", 0xC003 /* AL_SPEED_OF_SOUND */, model);
+		AL.globalHelper("alSpeedOfSound", 0xC003 /* AL_SPEED_OF_SOUND */, model);
 	},
 
 	alDopplerFactor: function(value) {
-		AL.doubleHelper("alDopplerFactor", 0xC000 /* AL_DOPPLER_FACTOR */, model);
+		AL.globalHelper("alDopplerFactor", 0xC000 /* AL_DOPPLER_FACTOR */, model);
 	},
 
 	// http://openal.996291.n3.nabble.com/alSpeedOfSound-or-alDopperVelocity-tp1960.html
