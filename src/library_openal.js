@@ -207,15 +207,15 @@ var LibraryOpenAL = {
 
 		setSourceState: function(src, state) {
 			if (state === 0x1012 /* AL_PLAYING */) {
-				if (src.state === 0x1013 /* AL_PAUSED */) {
-#if OPENAL_DEBUG
-					console.log("setSourceState() resuming source " + src.id + " at " + src.bufOffset);
-#endif
-				} else {
+				if (src.state === 0x1012 /* AL_PLAYING */ || src.state == 0x1014 /* AL_STOPPED */) {
 					src.bufsProcessed = 0;
 					src.bufOffset = 0.0;
 #if OPENAL_DEBUG
 					console.log("setSourceState() resetting and playing source " + src.id);
+#endif
+				} else {
+#if OPENAL_DEBUG
+					console.log("setSourceState() playing source " + src.id + " at " + src.bufOffset);
 #endif
 				}
 
@@ -423,6 +423,44 @@ var LibraryOpenAL = {
 			// speed pitch factor and apply it here.
 		},
 
+		sourceLength: function(src) {
+			var length = 0.0;
+			for (i = 0; i < src.bufQueue.length; i++) {
+				length += src.bufQueue[i].audioBuf.duration;
+			}
+			return length;
+		},
+
+		sourceTell: function(src) {
+			AL.updateSourceTime(src);
+
+			var offset = 0.0;
+			for (i = 0; i < src.bufsProcessed; i++) {
+				offset += src.bufQueue[i].audioBuf.duration;
+			}
+			offset += src.bufOffset;
+
+			return offset;
+		},
+
+		sourceSeek: function(src, offset) {
+			var playing = src.state == 0x1012 /* AL_PLAYING */;
+			if (playing) {
+				AL.setSourceState(src, 0x1011 /* AL_INITIAL */);
+			}
+
+			src.bufsProcessed = 0;
+			while (offset > src.bufQueue[src.bufsProcessed].audioBuf.duration) {
+				offset -= src.bufQueue[src.bufsProcessed].audiobuf.duration;
+				src.bufsProcessed++;
+			}
+
+			src.bufOffset = offset;
+			if (playing) {
+				AL.setSourceState(src, 0x1012 /* AL_PLAYING */);
+			}
+		},
+
 		// ------------------------------------------------------
 		// -- Accessor Helpers
 		// ------------------------------------------------------
@@ -604,11 +642,11 @@ var LibraryOpenAL = {
 			case 0x2001 /* AL_FREQUENCY */:
 				return buf.audioBuf.sampleRate;
 			case 0x2002 /* AL_BITS */:
-				return buf.audioBuf.bytesPerSample * 8;
+				return buf.audioBuf._bytesPerSample * 8;
 			case 0x2003 /* AL_CHANNELS */:
 				return buf.audioBuf.numberOfChannels;
 			case 0x2004 /* AL_SIZE */:
-				return buf.audioBuf.length * buf.audioBuf.bytesPerSample * buf.audioBuf.numberOfChannels;
+				return buf.audioBuf.length * buf.audioBuf._bytesPerSample * buf.audioBuf.numberOfChannels;
 			default:
 #if OPENAL_DEBUG
 				console.error(funcname + "() param 0x" + param.toString(16) + " is unknown or not implemented");
@@ -712,12 +750,20 @@ var LibraryOpenAL = {
 				return src.coneOuterGain;
 			case 0x1023 /* AL_MAX_DISTANCE */:
 				return src.maxDistance;
-//			case 0x1024 /* AL_SEC_OFFSET */:
-//				return;
-//			case 0x1025 /* AL_SAMPLE_OFFSET */:
-//				return;
-//			case 0x1026 /* AL_BYTE_OFFSET */:
-//				return;
+			case 0x1024 /* AL_SEC_OFFSET */:
+				return AL.sourceTell(src);
+			case 0x1025 /* AL_SAMPLE_OFFSET */:
+				var offset = AL.sourceTell(src);
+				if (offset > 0.0) {
+					offset *= src.bufQueue[0].audioBuf.sampleRate;
+				}
+				return offset;
+			case 0x1026 /* AL_BYTE_OFFSET */:
+				var offset = AL.sourceTell(src);
+				if (offset > 0.0) {
+					offset *= src.bufQueue[0].audioBuf.sampleRate * src.bufQueue[0].audioBuf._bytesPerSample;
+				}
+				return offset;
 			case 0x1027 /* AL_SOURCE_TYPE */:
 				return src.type;
 			default:
@@ -947,12 +993,45 @@ var LibraryOpenAL = {
 				}
 				src.maxDistance = value;
 				return;
-//			case 0x1024 /* AL_SEC_OFFSET */:
-//				return;
-//			case 0x1025 /* AL_SAMPLE_OFFSET */:
-//				return;
-//			case 0x1026 /* AL_BYTE_OFFSET */:
-//				return;
+			case 0x1024 /* AL_SEC_OFFSET */:
+				if (value < 0.0 || value > AL.sourceLength(src)) {
+#if OPENAL_DEBUG
+					console.error(funcname + "() param 0x" + param.toString(16) + " value " + value + " is out of range");
+#endif
+					AL.currentCtx.err = 0xA003 /* AL_INVALID_VALUE */;
+					return;
+				}
+
+				AL.sourceSeek(src, value);
+				return;
+			case 0x1025 /* AL_SAMPLE_OFFSET */:
+				if (src.bufQueue.length > 0) {
+					value /= src.bufQueue[0].audioBuf.sampleRate;
+				}
+				if (value < 0.0 || value > AL.sourceLength(src)) {
+#if OPENAL_DEBUG
+					console.error(funcname + "() param 0x" + param.toString(16) + " value " + value + " is out of range");
+#endif
+					AL.currentCtx.err = 0xA003 /* AL_INVALID_VALUE */;
+					return;
+				}
+
+				AL.sourceSeek(src, value);
+				return;
+			case 0x1026 /* AL_BYTE_OFFSET */:
+				if (src.bufQueue.length > 0) {
+					value /= src.bufQueue[0].audioBuf.sampleRate * src.bufQueue[0].audioBuf._bytesPerSample;
+				}
+				if (value < 0.0 || value > AL.sourceLength(src)) {
+#if OPENAL_DEBUG
+					console.error(funcname + "() param 0x" + param.toString(16) + " value " + value + " is out of range");
+#endif
+					AL.currentCtx.err = 0xA003 /* AL_INVALID_VALUE */;
+					return;
+				}
+
+				AL.sourceSeek(src, value);
+				return;
 			default:
 #if OPENAL_DEBUG
 				console.error(funcname + "() param 0x" + param.toString(16) + " is unknown or not implemented");
@@ -1449,7 +1528,7 @@ var LibraryOpenAL = {
 					}
 				},
 
-				_maxDistance: 3.40282347E+38 /* FLT_MAX */;
+				_maxDistance: 3.40282347e38 /* FLT_MAX */,
 				get maxDistance() {
 					return this._maxDistance;
 				},
@@ -1460,7 +1539,7 @@ var LibraryOpenAL = {
 					}
 				},
 
-				_rollOffFactor: 1.0,
+				_rolloffFactor: 1.0,
 				get rolloffFactor() {
 					return this._rolloffFactor;
 				},
@@ -2328,20 +2407,20 @@ var LibraryOpenAL = {
 			switch (format) {
 			case 0x1100 /* AL_FORMAT_MONO8 */:
 				var ab = AL.currentCtx.audioCtx.createBuffer(1, size, freq);
-				ab.bytesPerSample = 1;
+				ab._bytesPerSample = 1;
 				var channel0 = ab.getChannelData(0);
 				for (var i = 0; i < size; ++i) channel0[i] = HEAPU8[pData++] * 0.0078125 /* 1/128 */ - 1.0;
 				break;
 			case 0x1101 /* AL_FORMAT_MONO16 */:
 				var ab = AL.currentCtx.audioCtx.createBuffer(1, size>>1, freq);
-				ab.bytesPerSample = 2;
+				ab._bytesPerSample = 2;
 				var channel0 = ab.getChannelData(0);
 				pData >>= 1;
 				for (var i = 0; i < size>>1; ++i) channel0[i] = HEAP16[pData++] * 0.000030517578125 /* 1/32768 */;
 				break;
 			case 0x1102 /* AL_FORMAT_STEREO8 */:
 				var ab = AL.currentCtx.audioCtx.createBuffer(2, size>>1, freq);
-				ab.bytesPerSample = 1;
+				ab._bytesPerSample = 1;
 				var channel0 = ab.getChannelData(0);
 				var channel1 = ab.getChannelData(1);
 				for (var i = 0; i < size>>1; ++i) {
@@ -2351,7 +2430,7 @@ var LibraryOpenAL = {
 				break;
 			case 0x1103 /* AL_FORMAT_STEREO16 */:
 				var ab = AL.currentCtx.audioCtx.createBuffer(2, size>>2, freq);
-				ab.bytesPerSample = 2;
+				ab._bytesPerSample = 2;
 				var channel0 = ab.getChannelData(0);
 				var channel1 = ab.getChannelData(1);
 				pData >>= 1;
@@ -2362,14 +2441,14 @@ var LibraryOpenAL = {
 				break;
 			case 0x10010 /* AL_FORMAT_MONO_FLOAT32 */:
 				var ab = AL.currentCtx.audioCtx.createBuffer(1, size>>2, freq);
-				ab.bytesPerSample = 4;
+				ab._bytesPerSample = 4;
 				var channel0 = ab.getChannelData(0);
 				pData >>= 2;
 				for (var i = 0; i < size>>2; ++i) channel0[i] = HEAPF32[pData++];
 				break;
 			case 0x10011 /* AL_FORMAT_STEREO_FLOAT32 */:
 				var ab = AL.currentCtx.audioCtx.createBuffer(2, size>>3, freq);
-				ab.bytesPerSample = 4;
+				ab._bytesPerSample = 4;
 				var channel0 = ab.getChannelData(0);
 				var channel1 = ab.getChannelData(1);
 				pData >>= 2;
@@ -2626,7 +2705,7 @@ var LibraryOpenAL = {
 			var templateBuf = src.bufQueue[0];
 			if (templateBuf && (
 				buf.audioBuf.sampleRate !== templateBuf.audioBuf.sampleRate
-				|| buf.audioBuf.bytesPerSample !== templateBuf.audioBuf.bytesPerSample
+				|| buf.audioBuf._bytesPerSample !== templateBuf.audioBuf._bytesPerSample
 				|| buf.audioBuf.numberOfChannels !== templateBuf.audioBuf.numberOfChannels)
 			) {
 #if OPENAL_DEBUG
