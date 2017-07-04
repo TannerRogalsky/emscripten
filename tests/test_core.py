@@ -1235,9 +1235,12 @@ int main() {
   def test_polymorph(self):
       self.do_run_in_out_file_test('tests', 'core', 'test_polymorph')
 
-  @no_wasm_backend('no support for complex math division yet')
   def test_complex(self):
     self.do_run_in_out_file_test('tests', 'core', 'test_complex', force_c=True)
+
+  def test_float_builtins(self):
+    if not self.is_wasm_backend(): return self.skip('no __builtin_fmin support in JSBackend')
+    self.do_run_in_out_file_test('tests', 'core', 'test_float_builtins')
 
   @no_wasm_backend("wasm backend doesn't add Runtime.setDynamicTop and crashes")
   def test_segfault(self):
@@ -1626,7 +1629,6 @@ int main() {
     Building.COMPILER_TEST_OPTS += ['-std=c++11']
     self.do_run_in_out_file_test('tests', 'core', 'test_em_asm_parameter_pack')
 
-  @no_wasm_backend('stackSave/stackRestore is only generated in asmjs')
   def test_runtime_stacksave(self):
     src = open(path_from_root('tests', 'core', 'test_runtime_stacksave.c')).read()
     self.do_run(src, 'success')
@@ -1701,6 +1703,15 @@ int main() {
       Settings.SPLIT_MEMORY = 16*1024*1024
       test()
       Settings.SPLIT_MEMORY = 0
+
+  def test_memorygrowth_3(self):
+    # checks handling of malloc failure properly
+    self.emcc_args += ['-s', 'ALLOW_MEMORY_GROWTH=0', '-s', 'ABORTING_MALLOC=0', '-s', 'SAFE_HEAP=1']
+    self.do_run_in_out_file_test('tests', 'core', 'test_memorygrowth_3')
+
+  def test_memorygrowth_3_force_fail_reallocBuffer(self):
+    self.emcc_args += ['-s', 'ALLOW_MEMORY_GROWTH=1', '-DFAIL_REALLOC_BUFFER']
+    self.do_run_in_out_file_test('tests', 'core', 'test_memorygrowth_3')
 
   def test_ssr(self): # struct self-ref
       src = '''
@@ -2057,8 +2068,6 @@ The current type of b is: 9
     src = open(path_from_root('tests', 'termios', 'test_tcgetattr.c'), 'r').read()
     self.do_run(src, 'success', force_c=True)
 
-  @no_wasm_backend('ctime relies on stackSave/stackRestore that is only generated in asmjs; '
-                   'need to implement something similar in s2wasm')
   def test_time(self):
     src = open(path_from_root('tests', 'time', 'src.cpp'), 'r').read()
     expected = open(path_from_root('tests', 'time', 'output.txt'), 'r').read()
@@ -2068,8 +2077,6 @@ The current type of b is: 9
     # Confirms they are called in reverse order
     self.do_run_in_out_file_test('tests', 'core', 'test_timeb')
 
-  @no_wasm_backend('ctime relies on stackSave/stackRestore that is only generated in asmjs; '
-                   'need to implement something similar in s2wasm')
   def test_time_c(self):
     self.do_run_in_out_file_test('tests', 'core', 'test_time_c')
 
@@ -4637,6 +4644,7 @@ PORT: 3979
   def test_atomic(self):
     self.do_run_in_out_file_test('tests', 'core', 'test_atomic')
 
+  @no_wasm_backend('wasm has 64bit lockfree atomics')
   def test_atomic_cxx(self):
     test_path = path_from_root('tests', 'core', 'test_atomic_cxx')
     src, output = (test_path + s for s in ('.cpp', '.txt'))
@@ -4656,7 +4664,7 @@ PORT: 3979
     expected = open(path_from_root('tests', 'netinet', 'in.out'), 'r').read()
     self.do_run(src, expected)
 
-  @no_wasm_backend()
+  @no_wasm_backend('No dynamic linking support in wasm backend path')
   def test_main_module_static_align(self):
     if Settings.ALLOW_MEMORY_GROWTH: return self.skip('no shared modules with memory growth')
     Settings.MAIN_MODULE = 1
@@ -4745,6 +4753,38 @@ PORT: 3979
     ''')
     self.emcc_args += ['--js-library', path_from_root('tests', 'unicode_library.js')]
     self.do_run(open(os.path.join(self.get_dir(), 'main.cpp'), 'r').read(), u'Unicode snowman \u2603 says hello!')
+
+  def test_js_lib_dep_memset(self):
+    open('lib.js', 'w').write(r'''
+mergeInto(LibraryManager.library, {
+  depper__deps: ['memset'],
+  depper: function(ptr) {
+    _memset(ptr, 'd'.charCodeAt(0), 10);
+  },
+});
+''')
+    src = r'''
+#include <string.h>
+#include <stdio.h>
+
+extern "C" {
+extern void depper(char*);
+}
+
+int main(int argc, char** argv) {
+  char buffer[11];
+  buffer[10] = '\0';
+  // call by a pointer, to force linking of memset, no llvm intrinsic here
+  volatile auto ptr = memset;
+  (*ptr)(buffer, 'a', 10);
+  depper(buffer);
+  puts(buffer);
+}
+'''
+    self.emcc_args += ['--js-library', 'lib.js']
+    self.do_run(src, 'dddddddddd')
+    Settings.INCLUDE_FULL_LIBRARY = 1
+    self.do_run(src, 'dddddddddd')
 
   def test_funcptr_import_type(self):
     self.emcc_args += ['--js-library', path_from_root('tests', 'core', 'test_funcptr_import_type.js'), '-std=c++11']
@@ -4919,6 +4959,7 @@ return malloc(size);
       src = open(path_from_root('tests', 'mmap_file.c')).read()
       self.do_run(src, '*\n' + s[0:20] + '\n' + s[4096:4096+20] + '\n*\n')
 
+  @no_wasm_backend('FixFunctionBitcasts pass invalidates otherwise-ok function pointer casts')
   def test_cubescript(self):
     assert 'asm3' in test_modes
     if self.run_name == 'asm3':
@@ -5767,7 +5808,6 @@ def process(filename):
   ### Integration tests
 
   @sync
-  @no_wasm_backend()
   def test_ccall(self):
     post = '''
 def process(filename):
@@ -5812,7 +5852,7 @@ def process(filename):
       self.emcc_args += ['--closure', '1']
       self.do_run_in_out_file_test('tests', 'core', 'test_ccall', post_build=post)
 
-  @no_wasm_backend()
+  @no_wasm_backend('DEAD_FUNCTIONS elimination is done by the JSOptimizer')
   def test_dead_functions(self):
     src = r'''
       #include <stdio.h>
@@ -5968,7 +6008,6 @@ def process(filename):
     shutil.move(self.in_dir('src.cpp.o.js'), self.in_dir('pgoed2.js'))
     assert open('pgoed.js').read() == open('pgoed2.js').read()
 
-  @no_wasm_backend()
   def test_exported_response(self):
     src = r'''
       #include <stdio.h>
@@ -5992,7 +6031,6 @@ def process(filename):
     self.do_run(src, '''waka 5!''')
     assert 'other_function' in open('src.cpp.o.js').read()
 
-  @no_wasm_backend()
   def test_large_exported_response(self):
     src = r'''
       #include <stdio.h>
@@ -6114,7 +6152,6 @@ def process(filename):
     '''
     self.do_run(src, '|1.266,1|\n')
 
-  @no_wasm_backend('Need support for -g in wasm backend')
   def test_demangle_stacks(self):
     Settings.DEMANGLE_SUPPORT = 1
     if '-O' in str(self.emcc_args):
@@ -6123,7 +6160,7 @@ def process(filename):
     self.do_run_in_out_file_test('tests', 'core', 'test_demangle_stacks')
 
   @no_emterpreter
-  @no_wasm_backend('Need support for -g in wasm backend')
+  @no_wasm_backend('s2wasm does not generate symbol maps')
   def test_demangle_stacks_symbol_map(self):
     Settings.DEMANGLE_SUPPORT = 1
     if '-O' in str(self.emcc_args) and '-O0' not in self.emcc_args and '-O1' not in self.emcc_args and '-g' not in self.emcc_args:
@@ -6155,7 +6192,6 @@ def process(filename):
 
     self.do_run_in_out_file_test('tests', 'core', 'test_tracing')
 
-  @no_wasm_backend('TODO')
   def test_eval_ctors(self):
     if '-O2' not in str(self.emcc_args) or '-O1' in str(self.emcc_args): return self.skip('need js optimizations')
 
@@ -6344,6 +6380,10 @@ def process(filename):
   def test_embind_5(self):
     Building.COMPILER_TEST_OPTS += ['--bind']
     self.do_run_in_out_file_test('tests', 'core', 'test_embind_5')
+
+  def test_embind_unsigned(self):
+    self.emcc_args += ['--bind', '--std=c++11']
+    self.do_run_from_file(path_from_root('tests', 'embind', 'test_unsigned.cpp'), path_from_root('tests', 'embind', 'test_unsigned.out'))
 
   @sync
   @no_wasm_backend()
@@ -6808,14 +6848,29 @@ Module.printErr = Module['printErr'] = function(){};
       # objects when generating source maps, so we want to make sure the
       # optimizer can deal with both types.
       map_filename = out_filename + '.map'
-      data = json.load(open(map_filename, 'r'))
+
+      def encode_utf8(data):
+        if isinstance(data, dict):
+          for key in data:
+            data[key] = encode_utf8(data[key])
+          return data
+        elif isinstance(data, list):
+          for i in xrange(len(data)):
+            data[i] = encode_utf8(data[i])
+          return data
+        elif isinstance(data, unicode):
+          return data.encode('utf8')
+        else:
+          return data
+
+      data = encode_utf8(json.load(open(map_filename, 'r')))
       self.assertPathsIdentical(out_filename, data['file'])
       assert len(data['sources']) == 1, data['sources']
       self.assertPathsIdentical(src_filename, data['sources'][0])
       self.assertTextDataIdentical(src, data['sourcesContent'][0])
-      mappings = json.loads(jsrun.run_js(
+      mappings = encode_utf8(json.loads(jsrun.run_js(
         path_from_root('tools', 'source-maps', 'sourcemap2json.js'),
-        tools.shared.NODE_JS, [map_filename]))
+        tools.shared.NODE_JS, [map_filename])))
       seen_lines = set()
       for m in mappings:
         self.assertPathsIdentical(src_filename, m['source'])
@@ -7164,6 +7219,7 @@ int main(int argc, char **argv) {
     self.do_run(src, '*0-100-1-101-1-102-2-103-3-104-5-105-8-106-13-107-21-108-34-109-*')
 
   @no_emterpreter
+  @no_wasm_backend('EMTERPRETIFY causes JSOptimizer to run, which is disallowed')
   def test_emterpretify(self):
     Settings.EMTERPRETIFY = 1
     self.do_run_in_out_file_test('tests', 'core', 'test_hello_world')

@@ -13,7 +13,7 @@ from tempfiles import try_delete
 # On Windows python suffers from a particularly nasty bug if python is spawning new processes while python itself is spawned from some other non-console process.
 # Use a custom replacement for Popen on Windows to avoid the "WindowsError: [Error 6] The handle is invalid" errors when emcc is driven through cmake or mingw32-make.
 # See http://bugs.python.org/issue3905
-class WindowsPopen:
+class WindowsPopen(object):
   def __init__(self, args, bufsize=0, executable=None, stdin=None, stdout=None, stderr=None, preexec_fn=None, close_fds=False,
                shell=False, cwd=None, env=None, universal_newlines=False, startupinfo=None, creationflags=0):
     self.stdin = stdin
@@ -203,7 +203,7 @@ except:
 if EM_CONFIG and not os.path.isfile(EM_CONFIG):
   if EM_CONFIG.startswith('-'):
     raise Exception('Passed --em-config without an argument. Usage: --em-config /path/to/.emscripten or --em-config EMSCRIPTEN_ROOT=/path/;LLVM_ROOT=/path;...')
-  if not '=' in EM_CONFIG:
+  if '=' not in EM_CONFIG:
     raise Exception('File ' + EM_CONFIG + ' passed to --em-config does not exist!')
   else:
     EM_CONFIG = EM_CONFIG.replace(';', '\n') + '\n'
@@ -320,9 +320,13 @@ EM_BUILD_VERBOSE_LEVEL = int(os.getenv('EM_BUILD_VERBOSE')) if os.getenv('EM_BUI
 
 # Expectations
 
-EXPECTED_LLVM_VERSION = (4, 0)
-
 actual_clang_version = None
+
+def expected_llvm_version():
+  if get_llvm_target() == WASM_TARGET:
+    return "5.0"
+  else:
+    return "4.0"
 
 def get_clang_version():
   global actual_clang_version
@@ -333,7 +337,7 @@ def get_clang_version():
   return actual_clang_version
 
 def check_clang_version():
-  expected = '.'.join(map(str, EXPECTED_LLVM_VERSION))
+  expected = expected_llvm_version()
   actual = get_clang_version()
   if expected in actual:
     return True
@@ -380,7 +384,7 @@ def has_wasm_target(targets):
 def check_fastcomp():
   try:
     targets = get_llc_targets()
-    if get_llvm_target() == ASM_JS_TARGET:
+    if not Settings.WASM_BACKEND:
       if not has_asm_js_target(targets):
         logging.critical('fastcomp in use, but LLVM has not been built with the JavaScript backend as a target, llc reports:')
         print >> sys.stderr, '==========================================================================='
@@ -389,7 +393,6 @@ def check_fastcomp():
         logging.critical('you can fall back to the older (pre-fastcomp) compiler core, although that is not recommended, see http://kripken.github.io/emscripten-site/docs/building_from_source/LLVM-Backend.html')
         return False
     else:
-      assert get_llvm_target() == WASM_TARGET
       if not has_wasm_target(targets):
         logging.critical('WebAssembly set as target, but LLVM has not been built with the WebAssembly backend, llc reports:')
         print >> sys.stderr, '==========================================================================='
@@ -397,7 +400,7 @@ def check_fastcomp():
         print >> sys.stderr, '==========================================================================='
         return False
 
-    if get_llvm_target() == ASM_JS_TARGET:
+    if not Settings.WASM_BACKEND:
       # check repo versions
       d = get_fastcomp_src_dir()
       shown_repo_version_error = False
@@ -497,7 +500,7 @@ except Exception, e:
   EMSCRIPTEN_VERSION = 'unknown'
 
 def generate_sanity():
-  return EMSCRIPTEN_VERSION + '|' + LLVM_ROOT + '|' + get_clang_version() + ('_wasm' if get_llvm_target() == WASM_TARGET else '')
+  return EMSCRIPTEN_VERSION + '|' + LLVM_ROOT + '|' + get_clang_version() + ('_wasm' if Settings.WASM_BACKEND else '')
 
 def check_sanity(force=False):
   ToolchainProfiler.enter_block('sanity')
@@ -510,7 +513,7 @@ def check_sanity(force=False):
     else:
       settings_mtime = os.stat(CONFIG_FILE).st_mtime
       sanity_file = CONFIG_FILE + '_sanity'
-      if get_llvm_target() == WASM_TARGET:
+      if Settings.WASM_BACKEND:
         sanity_file += '_wasm'
       if os.path.exists(sanity_file):
         try:
@@ -684,14 +687,14 @@ def get_clang_native_env():
     if not os.path.isdir(windows10_sdk_dir):
       raise Exception('Windows 10 SDK was not found in "' + windows10_sdk_dir + '"! Run in Visual Studio command prompt to avoid the need to autoguess this location.')
 
-    if not 'VSINSTALLDIR' in env: env['VSINSTALLDIR'] = visual_studio_path
-    if not 'VCINSTALLDIR' in env: env['VCINSTALLDIR'] = os.path.join(visual_studio_path, 'VC')
+    env.setdefault('VSINSTALLDIR', visual_studio_path)
+    env.setdefault('VCINSTALLDIR', os.path.join(visual_studio_path, 'VC'))
 
     windows10sdk_kits_include_dir = os.path.join(windows10_sdk_dir, 'Include')
     windows10sdk_kit_version_name = [x for x in os.listdir(windows10sdk_kits_include_dir) if os.path.isdir(os.path.join(windows10sdk_kits_include_dir, x))][0] # e.g. "10.0.10150.0" or "10.0.10240.0"
 
     def append_item(key, item):
-      if not key in env or len(env[key].strip()) == 0: env[key] = item
+      if key not in env or len(env[key].strip()) == 0: env[key] = item
       else: env[key] = env[key] + ';' + item
 
     append_item('INCLUDE', os.path.join(env['VCINSTALLDIR'], 'INCLUDE'))
@@ -719,17 +722,20 @@ def get_clang_native_env():
   CACHED_CLANG_NATIVE_ENV = env
   return env
 
-CLANG_CC=os.path.expanduser(build_clang_tool_path('clang'))
-CLANG_CPP=os.path.expanduser(build_clang_tool_path('clang++'))
+def exe_suffix(cmd):
+  return cmd + '.exe' if WINDOWS else cmd
+
+CLANG_CC=os.path.expanduser(build_clang_tool_path(exe_suffix('clang')))
+CLANG_CPP=os.path.expanduser(build_clang_tool_path(exe_suffix('clang++')))
 CLANG=CLANG_CPP
-LLVM_LINK=build_llvm_tool_path('llvm-link')
-LLVM_AR=build_llvm_tool_path('llvm-ar')
-LLVM_OPT=os.path.expanduser(build_llvm_tool_path('opt'))
-LLVM_AS=os.path.expanduser(build_llvm_tool_path('llvm-as'))
-LLVM_DIS=os.path.expanduser(build_llvm_tool_path('llvm-dis'))
-LLVM_NM=os.path.expanduser(build_llvm_tool_path('llvm-nm'))
-LLVM_INTERPRETER=os.path.expanduser(build_llvm_tool_path('lli'))
-LLVM_COMPILER=os.path.expanduser(build_llvm_tool_path('llc'))
+LLVM_LINK=build_llvm_tool_path(exe_suffix('llvm-link'))
+LLVM_AR=build_llvm_tool_path(exe_suffix('llvm-ar'))
+LLVM_OPT=os.path.expanduser(build_llvm_tool_path(exe_suffix('opt')))
+LLVM_AS=os.path.expanduser(build_llvm_tool_path(exe_suffix('llvm-as')))
+LLVM_DIS=os.path.expanduser(build_llvm_tool_path(exe_suffix('llvm-dis')))
+LLVM_NM=os.path.expanduser(build_llvm_tool_path(exe_suffix('llvm-nm')))
+LLVM_INTERPRETER=os.path.expanduser(build_llvm_tool_path(exe_suffix('lli')))
+LLVM_COMPILER=os.path.expanduser(build_llvm_tool_path(exe_suffix('llc')))
 
 EMSCRIPTEN = path_from_root('emscripten.py')
 DEMANGLER = path_from_root('third_party', 'demangler.py')
@@ -772,7 +778,7 @@ def get_emscripten_temp_dir():
     prepare_to_clean_temp(EMSCRIPTEN_TEMP_DIR) # this global var might change later
   return EMSCRIPTEN_TEMP_DIR
 
-class WarningManager:
+class WarningManager(object):
   warnings = {
     'ABSOLUTE_PATHS': {
       'enabled': False,  # warning about absolute-paths is disabled by default
@@ -822,7 +828,7 @@ class WarningManager:
       warning['printed'] = True
       logging.warning((message or warning['message']) + ' [-W' + warning_type.lower().replace('_', '-') + ']')
 
-class Configuration:
+class Configuration(object):
   def __init__(self, environ=os.environ):
     self.DEBUG = environ.get('EMCC_DEBUG')
     if self.DEBUG == "0":
@@ -948,7 +954,6 @@ def check_vanilla():
     if is_vanilla:
       logging.debug('check tells us to use wasm backend')
       LLVM_TARGET = WASM_TARGET
-      os.environ['EMCC_WASM_BACKEND'] = '1'
     else:
       logging.debug('check tells us to use asm.js backend')
       LLVM_TARGET = ASM_JS_TARGET
@@ -1130,7 +1135,7 @@ def expand_byte_size_suffixes(value):
 # Settings. A global singleton. Not pretty, but nicer than passing |, settings| everywhere
 
 class Settings2(type):
-  class __impl:
+  class __impl(object):
     attrs = {}
 
     def __init__(self):
@@ -1164,6 +1169,9 @@ class Settings2(type):
           declare = re.sub(r'([\w\d]+)\s*=\s*(.+)', r'self.attrs["\1"]=\2;', args[i+1])
           exec declare
 
+      if get_llvm_target() == WASM_TARGET:
+        self.attrs['WASM_BACKEND'] = 1
+
     # Transforms the Settings information into emcc-compatible args (-s X=Y, etc.). Basically
     # the reverse of load_settings, except for -Ox which is relevant there but not here
     @classmethod
@@ -1196,7 +1204,7 @@ class Settings2(type):
         raise AttributeError
 
     def __setattr__(self, attr, value):
-      if not attr in self.attrs:
+      if attr not in self.attrs:
         import difflib
         logging.warning('''Assigning a non-existent settings attribute "%s"''' % attr)
         suggestions = ', '.join(difflib.get_close_matches(attr, self.attrs.keys()))
@@ -1283,7 +1291,7 @@ def extract_archive_contents(f):
     'files': []
   }
 
-class ObjectFileInfo:
+class ObjectFileInfo(object):
   def __init__(self, returncode, output, defs=set(), undefs=set(), commons=set()):
     self.returncode = returncode
     self.output = output
@@ -1306,7 +1314,7 @@ def g_multiprocessing_initializer(*args):
 
 # Building
 
-class Building:
+class Building(object):
   COMPILER = CLANG
   LLVM_OPTS = False
   COMPILER_TEST_OPTS = [] # For use of the test runner
@@ -1324,7 +1332,7 @@ class Building:
       # If running with one core only, create a mock instance of a pool that does not
       # actually spawn any new subprocesses. Very useful for internal debugging.
       if cores == 1:
-        class FakeMultiprocessor:
+        class FakeMultiprocessor(object):
           def map(self, func, tasks):
             results = []
             for t in tasks:
@@ -1333,14 +1341,21 @@ class Building:
         Building.multiprocessing_pool = FakeMultiprocessor()
       else:
         child_env = [
-          # Multiprocessing pool children must have their current working directory set to a safe path that is guaranteed not to die in between of
-          # executing commands, or otherwise the pool children will have trouble spawning subprocesses of their own.
+          # Multiprocessing pool children must have their current working
+          # directory set to a safe path that is guaranteed not to die in
+          # between of executing commands, or otherwise the pool children will
+          # have trouble spawning subprocesses of their own.
           'EMCC_POOL_CWD=' + path_from_root(),
-          # Multiprocessing pool children need to avoid all calling check_vanilla() again and again,
-          # otherwise the compiler can deadlock when building system libs, because the multiprocess parent can have the Emscripten cache directory locked for write
-          # access, and the EMCC_WASM_BACKEND check also requires locked access to the cache, which the multiprocess children would not get.
-          'EMCC_WASM_BACKEND=' + os.getenv('EMCC_WASM_BACKEND', '0'),
-          'EMCC_CORES=1' # Multiprocessing pool children can't spawn their own linear number of children, that could cause a quadratic amount of spawned processes.
+          # Multiprocessing pool children need to avoid all calling
+          # check_vanilla() again and again, otherwise the compiler can deadlock
+          # when building system libs, because the multiprocess parent can have
+          # the Emscripten cache directory locked for write access, and the
+          # EMCC_WASM_BACKEND check also requires locked access to the cache,
+          # which the multiprocess children would not get.
+          'EMCC_WASM_BACKEND=%s' % Settings.WASM_BACKEND,
+          # Multiprocessing pool children can't spawn their own linear number of
+          # children, that could cause a quadratic amount of spawned processes.
+          'EMCC_CORES=1'
         ]
         Building.multiprocessing_pool = multiprocessing.Pool(processes=cores, initializer=g_multiprocessing_initializer, initargs=child_env)
 
@@ -1358,13 +1373,46 @@ class Building:
 
     return Building.multiprocessing_pool
 
+  # When creating environment variables for Makefiles to execute, we need to doublequote the commands if they have spaces in them..
   @staticmethod
-  def get_building_env(native=False):
+  def doublequote_spaces(arg):
+    arg = arg[:] # Operate on a copy of the input string/list
+    if isinstance(arg, list):
+      for i in range(len(arg)):
+        arg[i] = Building.doublequote_spaces(arg[i])
+      return arg
+
+    if ' ' in arg and (not (arg.startswith('"') and arg.endswith('"'))) and (not (arg.startswith("'") and arg.endswith("'"))):
+      return '"' + arg.replace('"', '\\"') + '"'
+
+    return arg
+
+  # .. but for Popen, we cannot have doublequotes, so provide functionality to remove them when needed.
+  @staticmethod
+  def remove_quotes(arg):
+    arg = arg[:] # Operate on a copy of the input string/list
+    if isinstance(arg, list):
+      for i in range(len(arg)):
+        arg[i] = Building.remove_quotes(arg[i])
+      return arg
+
+    if arg.startswith('"') and arg.endswith('"'):
+      return arg[1:-1].replace('\\"', '"')
+    elif arg.startswith("'") and arg.endswith("'"):
+      return arg[1:-1].replace("\\'", "'")
+    else:
+      return arg
+
+  @staticmethod
+  def get_building_env(native=False, doublequote_commands=False):
+    def nop(arg):
+      return arg
+    quote = Building.doublequote_spaces if doublequote_commands else nop
     env = os.environ.copy()
     if native:
-      env['CC'] = CLANG_CC
-      env['CXX'] = CLANG_CPP
-      env['LD'] = CLANG
+      env['CC'] = quote(CLANG_CC)
+      env['CXX'] = quote(CLANG_CPP)
+      env['LD'] = quote(CLANG)
       env['CFLAGS'] = '-O2 -fno-math-errno'
       # get a non-native one, and see if we have some of its effects - remove them if so
       non_native = Building.get_building_env()
@@ -1374,18 +1422,18 @@ class Building:
         if env.get(dangerous) and env.get(dangerous) == non_native.get(dangerous):
           del env[dangerous] # better to delete it than leave it, as the non-native one is definitely wrong
       return env
-    env['CC'] = EMCC if not WINDOWS else 'python %r' % EMCC
-    env['CXX'] = EMXX if not WINDOWS else 'python %r' % EMXX
-    env['AR'] = EMAR if not WINDOWS else 'python %r' % EMAR
-    env['LD'] = EMCC if not WINDOWS else 'python %r' % EMCC
-    env['NM'] = LLVM_NM
-    env['LDSHARED'] = EMCC if not WINDOWS else 'python %r' % EMCC
-    env['RANLIB'] = EMRANLIB if not WINDOWS else 'python %r' % EMRANLIB
-    env['EMMAKEN_COMPILER'] = Building.COMPILER
+    env['CC'] = quote(EMCC) if not WINDOWS else 'python %s' % quote(EMCC)
+    env['CXX'] = quote(EMXX) if not WINDOWS else 'python %s' % quote(EMXX)
+    env['AR'] = quote(EMAR) if not WINDOWS else 'python %s' % quote(EMAR)
+    env['LD'] = quote(EMCC) if not WINDOWS else 'python %s' % quote(EMCC)
+    env['NM'] = quote(LLVM_NM)
+    env['LDSHARED'] = quote(EMCC) if not WINDOWS else 'python %s' % quote(EMCC)
+    env['RANLIB'] = quote(EMRANLIB) if not WINDOWS else 'python %s' % quote(EMRANLIB)
+    env['EMMAKEN_COMPILER'] = quote(Building.COMPILER)
     env['EMSCRIPTEN_TOOLS'] = path_from_root('tools')
     env['CFLAGS'] = env['EMMAKEN_CFLAGS'] = ' '.join(Building.COMPILER_TEST_OPTS)
-    env['HOST_CC'] = CLANG_CC
-    env['HOST_CXX'] = CLANG_CPP
+    env['HOST_CC'] = quote(CLANG_CC)
+    env['HOST_CXX'] = quote(CLANG_CPP)
     env['HOST_CFLAGS'] = "-W" #if set to nothing, CFLAGS is used, which we don't want
     env['HOST_CXXFLAGS'] = "-W" #if set to nothing, CXXFLAGS is used, which we don't want
     env['PKG_CONFIG_LIBDIR'] = path_from_root('system', 'local', 'lib', 'pkgconfig') + os.path.pathsep + path_from_root('system', 'lib', 'pkgconfig')
@@ -1556,7 +1604,7 @@ class Building:
     #    os.unlink(lib) # make sure compilation completed successfully
     #  except:
     #    pass
-    env = Building.get_building_env(native)
+    env = Building.get_building_env(native, True)
     for k, v in env_init.iteritems():
       env[k] = v
     if configure: # Useful in debugging sometimes to comment this out (and the lines below up to and including the |link| call)
@@ -1828,14 +1876,25 @@ class Building:
     opts = opts[:]
     #opts += ['-debug-pass=Arguments']
     if not Settings.SIMD:
-      opts += ['-disable-loop-vectorization', '-disable-slp-vectorization', '-vectorize-loops=false', '-vectorize-slp=false', '-vectorize-slp-aggressive=false']
+      opts += ['-disable-loop-vectorization', '-disable-slp-vectorization', '-vectorize-loops=false', '-vectorize-slp=false']
+      if not Settings.WASM_BACKEND:
+        # This option have been removed in llvm ToT
+        opts += ['-vectorize-slp-aggressive=false']
     else:
       opts += ['-bb-vectorize-vector-bits=128']
 
     logging.debug('emcc: LLVM opts: ' + ' '.join(opts) + '  [num inputs: ' + str(len(inputs)) + ']')
     target = out or (filename + '.opt.bc')
-    output = Popen([LLVM_OPT] + inputs + opts + ['-o', target], stdout=PIPE).communicate()[0]
-    assert os.path.exists(target), 'Failed to run llvm optimizations: ' + output
+    proc = Popen([LLVM_OPT] + inputs + opts + ['-o', target], stdout=PIPE)
+    output = proc.communicate()[0]
+    if proc.returncode != 0 or not os.path.exists(target):
+      logging.error('Failed to run llvm optimizations: ' + output)
+      for i in inputs:
+        if not os.path.exists(i):
+          logging.warning('Note: Input file "' + i + '" did not exist.')
+        elif not Building.is_bitcode(i):
+          logging.warning('Note: Input file "' + i + '" exists but was not an LLVM bitcode file suitable for Emscripten. Perhaps accidentally mixing native built object files with Emscripten?')
+      sys.exit(1)
     if not out:
       shutil.move(filename + '.opt.bc', filename)
     return target
@@ -2210,6 +2269,7 @@ class Building:
     # Some native libraries are implemented in Emscripten as system side JS libraries
     js_system_libraries = {
       'c': '',
+      'dl': '',
       'EGL': 'library_egl.js',
       'GL': 'library_gl.js',
       'GLESv2': 'library_gl.js',
@@ -2265,7 +2325,7 @@ def reconfigure_cache():
   global Cache
   Cache = cache.Cache(debug=DEBUG_CACHE)
 
-class JS:
+class JS(object):
   memory_initializer_pattern = '/\* memory initializer \*/ allocate\(\[([\d, ]*)\], "i8", ALLOC_NONE, ([\d+Runtime\.GLOBAL_BASEHgb]+)\);'
   no_memory_initializer_pattern = '/\* no memory initializer \*/'
 
@@ -2432,7 +2492,7 @@ class JS:
 
   @staticmethod
   def replace_initializers(src, inits):
-    class State:
+    class State(object):
       first = True
     def rep(m):
       if not State.first: return ''
@@ -2491,7 +2551,7 @@ class JS:
   def is_function_table(name):
     return name.startswith('FUNCTION_TABLE_')
 
-class WebAssembly:
+class WebAssembly(object):
   @staticmethod
   def lebify(x):
     assert x >= 0, 'TODO: signed'
@@ -2536,6 +2596,7 @@ class WebAssembly:
 
 def execute(cmd, *args, **kw):
   try:
+    cmd[0] = Building.remove_quotes(cmd[0])
     return Popen(cmd, *args, **kw).communicate() # let compiler frontend print directly, so colors are saved (PIPE kills that)
   except:
     if not isinstance(cmd, str):
@@ -2566,6 +2627,10 @@ def suffix(name):
   return os.path.splitext(name)[1][1:]
 
 def unsuffixed(name):
+  """Return the filename without the extention.
+
+  If there are multiple extensions this strips only the final one.
+  """
   return os.path.splitext(name)[0]
 
 def unsuffixed_basename(name):

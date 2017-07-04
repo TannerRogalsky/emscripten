@@ -685,7 +685,7 @@ def unfloat(s):
 
 
 def make_function_tables_defs(implemented_functions, all_implemented, function_table_data, settings, metadata):
-  class Counter:
+  class Counter(object):
     next_bad_item = 0
     next_item = 0
     pre = []
@@ -1753,7 +1753,7 @@ def build_wasm(temp_files, infile, outfile, settings, DEBUG):
       shutil.copyfile(temp_s, os.path.join(shared.CANONICAL_TEMP_DIR, 'emcc-llvm-backend-output.s'))
 
     assert shared.Settings.BINARYEN_ROOT, 'need BINARYEN_ROOT config set so we can use Binaryen s2wasm on the backend output'
-    basename = outfile.name[:-3]
+    basename = shared.unsuffixed(outfile.name)
     wast = basename + '.wast'
     s2wasm_args = create_s2wasm_args(temp_s)
     if DEBUG:
@@ -1764,6 +1764,8 @@ def build_wasm(temp_files, infile, outfile, settings, DEBUG):
     # Also convert wasm text to binary
     wasm_as_args = [os.path.join(shared.Settings.BINARYEN_ROOT, 'bin', 'wasm-as'),
                     wast, '-o', basename + '.wasm']
+    if settings['DEBUG_LEVEL'] >= 2 or settings['PROFILING_FUNCS']:
+      wasm_as_args += ['-g']
     logging.debug('  emscript: binaryen wasm-as: ' + ' '.join(wasm_as_args))
     shared.check_call(wasm_as_args)
 
@@ -1918,9 +1920,9 @@ var asm = Module['asm'](%s, %s, buffer);
 STACKTOP = STACK_BASE + TOTAL_STACK;
 STACK_MAX = STACK_BASE;
 HEAP32[%d >> 2] = STACKTOP;
-Runtime.stackAlloc = Module['stackAlloc'];
-Runtime.stackSave = Module['stackSave'];
-Runtime.stackRestore = Module['stackRestore'];
+Runtime.stackAlloc = Module['_stackAlloc'];
+Runtime.stackSave = Module['_stackSave'];
+Runtime.stackRestore = Module['_stackRestore'];
 Runtime.establishStackSpace = Module['establishStackSpace'];
 ''' % shared.Settings.GLOBAL_BASE)
 
@@ -1954,9 +1956,12 @@ def create_backend_args_wasm(infile, temp_s, settings):
 
 
 def create_s2wasm_args(temp_s):
-  def compiler_rt_fail():
-    raise Exception('Expected wasm_compiler_rt.a to already be built')
-  compiler_rt_lib = shared.Cache.get('wasm_compiler_rt.a', compiler_rt_fail, 'a')
+  def wasm_rt_fail(archive_file):
+    def wrapped():
+      raise Exception('Expected {} to already be built'.format(archive_file))
+    return wrapped
+  compiler_rt_lib = shared.Cache.get('wasm_compiler_rt.a', wasm_rt_fail('wasm_compiler_rt.a'), 'a')
+  libc_rt_lib = shared.Cache.get('wasm_libc_rt.a', wasm_rt_fail('wasm_libc_rt.a'), 'a')
 
   s2wasm_path = os.path.join(shared.Settings.BINARYEN_ROOT, 'bin', 's2wasm')
 
@@ -1964,7 +1969,7 @@ def create_s2wasm_args(temp_s):
   args += ['--global-base=%d' % shared.Settings.GLOBAL_BASE]
   args += ['--initial-memory=%d' % shared.Settings.TOTAL_MEMORY]
   args += ['--allow-memory-growth'] if shared.Settings.ALLOW_MEMORY_GROWTH else []
-  args += ['-l', compiler_rt_lib]
+  args += ['-l', compiler_rt_lib, '-l', libc_rt_lib]
   return args
 
 
@@ -2076,7 +2081,10 @@ def main(args, compiler_engine, cache, temp_files, DEBUG):
   settings = {}
   for setting in args.settings:
     name, value = setting.strip().split('=', 1)
-    settings[name] = json.loads(value)
+    value = json.loads(value)
+    if isinstance(value, unicode):
+      value = value.encode('utf8')
+    settings[name] = value
 
   # libraries
   libraries = args.libraries[0].split(',') if len(args.libraries) > 0 else []
